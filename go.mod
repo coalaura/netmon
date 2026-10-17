@@ -6,6 +6,10 @@ require (
 	github.com/coalaura/plain v1.6.5
 	github.com/go-gui-org/go-charts v0.26.0
 	github.com/go-gui-org/go-gui v0.90.0
+	github.com/godbus/dbus/v5 v5.2.2
+	github.com/miekg/dns v1.1.73
+	github.com/prometheus-community/pro-bing v0.9.1
+	golang.org/x/sys v0.49.0
 )
 
 require (
@@ -17,14 +21,15 @@ require (
 	github.com/go-gui-org/go-glyph v1.26.4 // indirect
 	github.com/go-pdf/fpdf v0.9.0 // indirect
 	github.com/go-text/typesetting v0.3.5 // indirect
-	github.com/godbus/dbus/v5 v5.2.2 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/jezek/xgb v1.3.1 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/tdewolff/parse/v2 v2.8.16 // indirect
 	github.com/yuin/goldmark v1.8.5 // indirect
 	github.com/yuin/goldmark-emoji v1.0.6 // indirect
 	golang.org/x/image v0.47.0 // indirect
-	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/net v0.59.0 // indirect
+	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/term v0.47.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 )

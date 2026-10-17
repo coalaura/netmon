@@ -1,0 +1,692 @@
+package main
+
+import (
+	"fmt"
+	"math"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/go-gui-org/go-charts/axis"
+	"github.com/go-gui-org/go-charts/chart"
+	"github.com/go-gui-org/go-charts/series"
+	"github.com/go-gui-org/go-charts/theme"
+	"github.com/go-gui-org/go-gui/gui"
+)
+
+const chartWindow = 5 * time.Minute
+
+type fixedTimeAxis struct {
+	*axis.Time
+}
+
+type dashboard struct {
+	series       [2][]series.XY
+	regions      [2][]chart.RegionAnnotation
+	start        time.Time
+	end          time.Time
+	events       []string
+	traceDue     time.Time
+	tracePoints  []series.Point
+	traceSeries  []series.XY
+	traceRegions []chart.RegionAnnotation
+	logError     string
+	csvOpenError string
+	monitor      *monitor
+	current      sample
+	version      uint64
+	points       [probeCount][]series.Point
+	chartTheme   *theme.Theme
+	loss         [probeCount]string
+	trace        *traceResult
+	csvOpening   bool
+	traceRunning bool
+}
+
+var (
+	colorBackground = gui.Hex(0x161616)
+	colorPanel      = gui.Hex(0x202020)
+	colorBorder     = gui.Hex(0x383838)
+	colorText       = gui.Hex(0xE5E5E5)
+	colorMuted      = gui.Hex(0xA5A5A5)
+	colorGreen      = gui.Hex(0x8DCAA0)
+	colorTeal       = gui.Hex(0x60C4B7)
+	colorSand       = gui.Hex(0xDBC18B)
+	colorAmber      = gui.Hex(0xEEB45D)
+	colorRed        = gui.Hex(0xED8076)
+	colorOrange     = gui.Hex(0xD99568)
+	probeColors     = [probeCount]gui.Color{colorGreen, colorSand, colorGreen, colorSand, colorTeal}
+)
+
+func (*fixedTimeAxis) SetRange(_, _ float64) {
+	// go-charts replaces even explicit time bounds with series bounds on each draw.
+	// Keep the supplied rolling window instead, including when samples are missing.
+}
+
+func (dashboard *dashboard) refresh() {
+	monitor := dashboard.monitor
+
+	monitor.mu.RLock()
+	defer monitor.mu.RUnlock()
+
+	if monitor.count == 0 || monitor.version == dashboard.version {
+		return
+	}
+
+	previous := dashboard.current
+
+	dashboard.current = monitor.history[(monitor.next+historySize-1)%historySize]
+	dashboard.version = monitor.version
+	dashboard.logError = monitor.logError
+	dashboard.end = dashboard.current.Time
+	dashboard.start = dashboard.end.Add(-chartWindow)
+
+	dashboard.recordChanges(&previous)
+	dashboard.refreshTraces()
+
+	for index := range dashboard.points {
+		dashboard.points[index] = dashboard.points[index][:0]
+	}
+
+	for index := range dashboard.regions {
+		dashboard.regions[index] = dashboard.regions[index][:0]
+	}
+
+	var (
+		failed    [probeCount]int
+		attempted [probeCount]int
+	)
+
+	for offset := range monitor.count {
+		index := (monitor.next - monitor.count + offset + historySize) % historySize
+
+		current := &monitor.history[index]
+		if current.Time.Before(dashboard.start) {
+			continue
+		}
+
+		coordinate := float64(current.Time.UnixNano()) / float64(time.Second)
+
+		for probeIndex := range current.Probes {
+			result := &current.Probes[probeIndex]
+			value := math.NaN()
+
+			if result.Status == statusOK || result.Status == statusPartial {
+				value = float64(result.Duration) / float64(time.Millisecond)
+			}
+
+			attempts, successes := result.counts()
+
+			attempted[probeIndex] += attempts
+			failed[probeIndex] += attempts - successes
+
+			dashboard.points[probeIndex] = append(dashboard.points[probeIndex], series.Point{X: coordinate, Y: value})
+		}
+
+		dashboard.appendRegion(0, coordinate, current.Probes[:2])
+		dashboard.appendRegion(1, coordinate, current.Probes[2:])
+	}
+
+	for index := range dashboard.loss {
+		dashboard.loss[index] = "--"
+
+		if attempted[index] > 0 {
+			dashboard.loss[index] = fmt.Sprintf("%.1f%%", 100*float64(failed[index])/float64(attempted[index]))
+		}
+	}
+
+	dashboard.buildSeries(0, 0, 2)
+	dashboard.buildSeries(1, 2, 5)
+}
+
+func (dashboard *dashboard) buildSeries(group, first, last int) {
+	data := dashboard.series[group][:0]
+
+	for index := first; index < last; index++ {
+		points := dashboard.points[index]
+		start := 0
+
+		// go-charts skips NaNs without breaking its polyline; use separate contiguous series.
+		for offset := 0; offset <= len(points); offset++ {
+			boundary := offset == len(points)
+			if !boundary {
+				boundary = math.IsNaN(points[offset].Y)
+
+				if offset > start && points[offset].X-points[offset-1].X > 1.5 {
+					boundary = true
+				}
+			}
+
+			if !boundary {
+				continue
+			}
+
+			if offset > start {
+				data = append(data, series.NewXY(series.XYCfg{Name: probeNames[index], Color: probeColors[index], Points: points[start:offset]}))
+			}
+
+			start = offset
+
+			if offset < len(points) && math.IsNaN(points[offset].Y) {
+				start++
+			}
+		}
+	}
+
+	dashboard.series[group] = data
+}
+
+func (dashboard *dashboard) appendRegion(index int, coordinate float64, results []probeResult) {
+	status := statusOK
+
+	for resultIndex := range results {
+		candidate := results[resultIndex].Status
+		if statusSeverity(candidate) > statusSeverity(status) {
+			status = candidate
+		}
+	}
+
+	if status == statusOK || status == statusUnavailable {
+		return
+	}
+
+	color := statusColor(status)
+	color.A = 38
+
+	regions := dashboard.regions[index]
+	if len(regions) > 0 && regions[len(regions)-1].Color == color && coordinate-regions[len(regions)-1].Max < 0.75 {
+		regions[len(regions)-1].Max = coordinate + 0.5
+
+		dashboard.regions[index] = regions
+
+		return
+	}
+
+	dashboard.regions[index] = append(regions, chart.RegionAnnotation{Axis: chart.AnnotationX, Min: coordinate - 0.5, Max: coordinate + 0.5, Color: color})
+}
+
+func (dashboard *dashboard) recordChanges(previous *sample) {
+	state := &dashboard.current.Interface
+	if previous.Time.IsZero() || previous.Interface != *state {
+		dashboard.addEvent(fmt.Sprintf("%s | %s | %s | %s | ARP %s | route %t", state.Name, addressText(state.Address), state.Link, speedText(state.Speed), state.ARP, state.DefaultRoute))
+	}
+
+	for index := range dashboard.current.Probes {
+		result := &dashboard.current.Probes[index]
+		if probeStateChanged(result, &previous.Probes[index]) {
+			dashboard.addEvent(probeNames[index] + ": " + result.Status + " | " + result.Detail)
+		}
+	}
+}
+
+func (dashboard *dashboard) addEvent(message string) {
+	if len(dashboard.events) == cap(dashboard.events) {
+		copy(dashboard.events, dashboard.events[1:])
+
+		dashboard.events = dashboard.events[:len(dashboard.events)-1]
+	}
+
+	dashboard.events = append(dashboard.events, dashboard.current.Time.Format("15:04:05")+"  "+message)
+}
+
+func (dashboard *dashboard) view(_ *gui.Window) gui.View {
+	state := &dashboard.current.Interface
+	updated := "Discovering network..."
+
+	if !dashboard.current.Time.IsZero() {
+		updated = "LIVE  |  " + dashboard.current.Time.Format("15:04:05") + "  |  IPv4  |  1s sampling"
+	}
+
+	interfaceName := state.Name
+	if interfaceName == "" {
+		interfaceName = "No active interface"
+	}
+
+	route := "Missing"
+	routeColor := colorRed
+
+	if state.DefaultRoute {
+		route = "Present"
+		routeColor = colorGreen
+	}
+
+	linkColor := colorAmber
+
+	if state.Link == "up" {
+		linkColor = colorGreen
+	}
+
+	content := []gui.View{
+		gui.Row(gui.ContainerCfg{
+			Sizing:  gui.FillFit,
+			Padding: gui.PaddingNone,
+			Spacing: gui.SpacingPx(12),
+			Content: []gui.View{
+				label("NETMON", 16, colorText),
+				paragraph("INTERFACE / ICMP / DNS / ROUTE", 11, colorMuted),
+				label(updated, 12, colorGreen),
+			},
+		}),
+		gui.Row(gui.ContainerCfg{
+			Sizing:  gui.FillFit,
+			Padding: gui.PaddingNone,
+			Spacing: gui.SpacingPx(6),
+			Content: []gui.View{
+				metricCard("INTERFACE", interfaceName, addressText(state.Address), colorText),
+				metricCard("LINK", strings.ToUpper(state.Link), "Negotiated speed: "+speedText(state.Speed), linkColor),
+				metricCard("GATEWAY / ARP", addressText(state.Gateway), "Neighbor: "+state.ARP, neighborColor(state.ARP)),
+				metricCard("DEFAULT ROUTE", route, "DNS: "+addressText(state.Resolver), routeColor),
+			},
+		}),
+		gui.Row(gui.ContainerCfg{
+			Sizing:  gui.FillFit,
+			Padding: gui.PaddingNone,
+			Spacing: gui.SpacingPx(6),
+			Content: []gui.View{dashboard.latencyChart(0, 2, "ICMP / gateway RTT + remote mean", "icmp"), dashboard.latencyChart(2, 5, "DNS mean / successful hosts", "dns")},
+		}),
+		paragraph("5 MIN WINDOW  |  Amber: timeout / partial results; red: error; orange: permission. Means include successful replies only; gaps: none succeeded.", 11, colorMuted),
+		dashboard.probeTable(),
+		paragraph("DNS: example.com / google.com / cloudflare.com concurrently; mean of successful hosts. Resolver: "+state.ResolverSource, 11, colorMuted),
+		dashboard.tracePanel(),
+	}
+
+	if state.Error != "" {
+		content = append(content, paragraph(state.Error, 12, colorAmber))
+	}
+
+	content = append(content, dashboard.eventPanel())
+
+	logging := "CSV  " + dashboard.monitor.logPath
+	loggingColor := colorMuted
+
+	if dashboard.logError != "" {
+		logging = "CSV ERROR  " + dashboard.logError + "  |  " + dashboard.monitor.logPath
+		loggingColor = colorRed
+	}
+
+	content = append(content, gui.Row(gui.ContainerCfg{
+		Sizing:  gui.FillFit,
+		Padding: gui.PaddingNone,
+		Spacing: gui.SpacingPx(8),
+		Content: []gui.View{
+			paragraph(logging, 12, loggingColor),
+			gui.Button(gui.ButtonCfg{
+				ID:       "open-csv",
+				Sizing:   gui.FitFit,
+				Padding:  gui.PadVH(4, 8),
+				Radius:   gui.RadiusPx(0),
+				Colors:   gui.ColorSet{Base: colorPanel, Hover: colorBorder, Click: colorBackground, Focus: colorBorder, BorderFocus: colorMuted, Border: colorBorder},
+				Disabled: dashboard.csvOpening,
+				Content:  []gui.View{label("Open CSV", 11, colorText)},
+				OnClick:  dashboard.openCSV,
+			}),
+		},
+	}))
+
+	if dashboard.csvOpenError != "" {
+		content = append(content, paragraph("Cannot open CSV: "+dashboard.csvOpenError, 11, colorRed))
+	}
+
+	return gui.Column(gui.ContainerCfg{
+		ID:         "dashboard",
+		Sizing:     gui.FillFill,
+		Color:      colorBackground,
+		Padding:    gui.PadAll(8),
+		Spacing:    gui.SpacingPx(6),
+		Scrollable: true,
+		Content:    content,
+	})
+}
+
+func (dashboard *dashboard) latencyChart(first, last int, title, id string) gui.View {
+	legend := make([]gui.View, 0, last-first)
+	maximum := float64(10)
+
+	for index := first; index < last; index++ {
+		legend = append(legend, label(probeNames[index], 11, probeColors[index]))
+
+		for _, point := range dashboard.points[index] {
+			if !math.IsNaN(point.Y) {
+				maximum = max(maximum, point.Y*1.15)
+			}
+		}
+	}
+
+	regionIndex := 0
+
+	if first != 0 {
+		regionIndex = 1
+	}
+
+	plot := lineChart(chart.LineCfg{
+		ID:            id,
+		Title:         title,
+		Sizing:        gui.FillFixed,
+		Height:        220,
+		Theme:         dashboard.chartTheme,
+		Version:       dashboard.version,
+		TooltipXLabel: "Time",
+		TooltipYLabel: "ms",
+		Annotations:   chart.Annotations{Regions: dashboard.regions[regionIndex]},
+		Series:        dashboard.series[regionIndex],
+		XAxis:         &fixedTimeAxis{Time: axis.NewTime(axis.TimeCfg{Min: dashboard.start, Max: dashboard.end, Format: "15:04:05"})},
+		YAxis:         axis.NewLinear(axis.LinearCfg{Title: "ms", Min: 0, Max: maximum, TickCount: 5}),
+		LineWidth:     1.5,
+		ShowMarkers:   false,
+	}, "No successful samples in this window")
+
+	return gui.Column(gui.ContainerCfg{
+		Sizing:  gui.FillFit,
+		Padding: gui.PaddingNone,
+		Spacing: gui.SpacingPx(2),
+		Content: []gui.View{gui.Row(gui.ContainerCfg{Padding: gui.PaddingNone, Spacing: gui.SpacingPx(10), Content: legend}), plot},
+	})
+}
+
+func (dashboard *dashboard) probeTable() gui.View {
+	rows := make([]gui.View, 0, probeCount+1)
+
+	rows = append(rows, probeRow([]gui.View{
+		fixedLabel("MONITOR", 110, colorMuted),
+		fixedLabel("RESULT", 94, colorMuted),
+		fixedLabel("RTT / MEAN", 84, colorMuted),
+		fixedLabel("FAIL / 5M", 72, colorMuted),
+		fixedLabel("TARGET", 108, colorMuted),
+		paragraph("HOST RESULTS / DETAIL", 11, colorMuted),
+	}))
+
+	order := [probeCount]int{0, 1, 2, 4, 3}
+
+	for _, index := range order {
+		result := &dashboard.current.Probes[index]
+
+		status := strings.ToUpper(result.Status)
+		if status == "" {
+			status = "WAITING"
+		}
+
+		if result.DNSAttempted > 0 {
+			status = fmt.Sprintf("%d/%d OK", result.DNSSucceeded, result.DNSAttempted)
+		} else if result.ICMPAttempted > 0 {
+			status = fmt.Sprintf("%d/%d OK", result.ICMPSucceeded, result.ICMPAttempted)
+		}
+
+		target := result.Target
+
+		if result.ICMP[0].Target != "" {
+			target = "3 hosts"
+		}
+
+		latency := "--"
+
+		if result.Duration > 0 {
+			latency = strconv.FormatFloat(float64(result.Duration)/float64(time.Millisecond), 'f', 1, 64) + " ms"
+		}
+
+		rows = append(rows, probeRow([]gui.View{
+			fixedLabel(probeNames[index], 110, probeColors[index]),
+			fixedLabel(status, 94, statusColor(result.Status)),
+			fixedLabel(latency, 84, colorText),
+			fixedLabel(dashboard.loss[index], 72, colorMuted),
+			fixedLabel(target, 108, colorText),
+			probeDetail(result),
+		}))
+	}
+
+	return panel(rows)
+}
+
+func (dashboard *dashboard) eventPanel() gui.View {
+	rows := make([]gui.View, 0, max(1, len(dashboard.events)))
+
+	for _, message := range slices.Backward(dashboard.events) {
+		rows = append(rows, paragraph(message, 11, colorMuted))
+	}
+
+	if len(dashboard.events) == 0 {
+		rows = append(rows, label("Waiting for the first sample...", 11, colorMuted))
+	}
+
+	return panel([]gui.View{
+		label("RECENT CHANGES", 13, colorText),
+		gui.Column(gui.ContainerCfg{
+			ID:            "recent-changes",
+			Sizing:        gui.FillFixed,
+			Height:        90,
+			Padding:       gui.PaddingNone,
+			Spacing:       gui.SpacingPx(3),
+			Scrollable:    true,
+			ScrollMode:    gui.ScrollVerticalOnly,
+			ClipContents:  true,
+			ScrollbarCfgY: &gui.ScrollbarCfg{Size: 6, Radius: gui.RadiusPx(0), ColorThumb: colorMuted, ColorBackground: colorPanel},
+			Content:       rows,
+		}),
+	})
+}
+
+func (dashboard *dashboard) openCSV(event gui.EventCtx) {
+	if dashboard.csvOpening {
+		return
+	}
+
+	dashboard.csvOpening = true
+	dashboard.csvOpenError = ""
+
+	window := event.Window
+
+	path := dashboard.monitor.logPath
+
+	window.InvalidateLayout()
+
+	go func() {
+		err := openLogFile(path)
+		if err != nil {
+			log.Errorf("Cannot open CSV %s: %v", path, err)
+		}
+
+		if window.Ctx().Err() != nil {
+			return
+		}
+
+		window.QueueCommand(func(window *gui.Window) {
+			dashboard.csvOpening = false
+
+			if err != nil {
+				dashboard.csvOpenError = err.Error()
+			}
+
+			window.InvalidateLayout()
+		})
+	}()
+}
+
+func newDashboard(monitor *monitor) *dashboard {
+	chartTheme := theme.Default()
+
+	chartTheme.Background = colorPanel
+	chartTheme.TitleStyle = gui.TextStyle{Size: 13, Color: colorText}
+	chartTheme.LabelStyle = gui.TextStyle{Size: 11, Color: colorMuted}
+	chartTheme.TickStyle = gui.TextStyle{Size: 10, Color: colorMuted}
+	chartTheme.TooltipStyle = gui.TextStyle{Size: 11, Color: colorText}
+	chartTheme.GridColor = colorBorder
+	chartTheme.AxisColor = colorBorder
+	chartTheme.Legend.TextStyle = gui.TextStyle{Size: 10, Color: colorText}
+	chartTheme.Legend.Background = colorPanel
+	chartTheme.Legend.Position = theme.LegendNone
+	chartTheme.PaddingLeft = 46
+	chartTheme.PaddingRight = 14
+	chartTheme.PaddingTop = 30
+	chartTheme.PaddingBottom = 30
+
+	now := time.Now()
+
+	dashboard := &dashboard{
+		monitor:      monitor,
+		chartTheme:   chartTheme,
+		start:        now.Add(-chartWindow),
+		end:          now,
+		logError:     monitor.logError,
+		events:       make([]string, 0, 32),
+		tracePoints:  make([]series.Point, 0, traceHistorySize),
+		traceSeries:  make([]series.XY, 0, traceHistorySize),
+		traceRegions: make([]chart.RegionAnnotation, 0, traceHistorySize),
+	}
+
+	for index := range dashboard.points {
+		dashboard.points[index] = make([]series.Point, 0, historySize)
+	}
+
+	for index := range dashboard.regions {
+		dashboard.regions[index] = make([]chart.RegionAnnotation, 0, historySize)
+		dashboard.series[index] = make([]series.XY, 0, historySize*3)
+	}
+
+	return dashboard
+}
+
+func label(text string, size float32, color gui.Color) gui.View {
+	return gui.Text(gui.TextCfg{Text: text, TextStyle: gui.TextStyle{Size: size, Color: color}, Sizing: gui.FitFit})
+}
+
+func paragraph(text string, size float32, color gui.Color) gui.View {
+	return gui.Text(gui.TextCfg{Text: text, TextStyle: gui.TextStyle{Size: size, Color: color}, Sizing: gui.FillFit, Mode: gui.TextModeWrap})
+}
+
+func fixedLabel(text string, width float32, color gui.Color) gui.View {
+	return gui.Column(gui.ContainerCfg{Sizing: gui.FixedFit, Width: width, Padding: gui.PaddingNone, Content: []gui.View{label(text, 12, color)}})
+}
+
+func metricCard(title, value, detail string, color gui.Color) gui.View {
+	if value == "" {
+		value = "--"
+	}
+
+	return panel([]gui.View{label(title, 10, colorMuted), paragraph(value, 14, color), paragraph(detail, 11, colorMuted)})
+}
+
+func panel(content []gui.View) gui.View {
+	return gui.Column(gui.ContainerCfg{Sizing: gui.FillFit, Color: colorPanel, ColorBorder: colorBorder, Radius: gui.RadiusPx(0), Padding: gui.PadAll(6), Spacing: gui.SpacingPx(2), Content: content})
+}
+
+func probeRow(content []gui.View) gui.View {
+	return gui.Row(gui.ContainerCfg{Sizing: gui.FillFit, Padding: gui.PadVH(2, 0), Spacing: gui.SpacingPx(6), Content: content})
+}
+
+func probeDetail(result *probeResult) gui.View {
+	if result.ICMPAttempted > 0 {
+		hosts := make([]gui.View, 0, icmpTargetCount)
+
+		for index := range result.ICMP {
+			target := &result.ICMP[index]
+			hosts = append(hosts, hostResult(target.Target, target.Status, target.Duration, target.Detail))
+		}
+
+		return gui.Row(gui.ContainerCfg{Sizing: gui.FillFit, Padding: gui.PaddingNone, Spacing: gui.SpacingPx(6), Content: hosts})
+	}
+
+	if result.Query == "" && result.Status == statusOK {
+		return hostResult(result.Target, result.Status, result.Duration, result.Detail)
+	}
+
+	if result.Query == "" || result.DNSAttempted == 0 {
+		return paragraph(result.Detail, 11, colorMuted)
+	}
+
+	hosts := make([]gui.View, 0, dnsTargetCount)
+
+	for index := range result.DNS {
+		query := &result.DNS[index]
+		hosts = append(hosts, hostResult(query.Query, query.Status, query.Duration, query.Detail))
+	}
+
+	return gui.Row(gui.ContainerCfg{Sizing: gui.FillFit, Padding: gui.PaddingNone, Spacing: gui.SpacingPx(6), Content: hosts})
+}
+
+func hostResult(host, status string, duration time.Duration, detail string) gui.View {
+	value := status
+
+	switch status {
+	case statusOK:
+		value = strconv.FormatFloat(float64(duration)/float64(time.Millisecond), 'f', 1, 64) + "ms"
+	case statusDNSError:
+		value = detail
+	}
+
+	return paragraph(host+" "+value, 11, statusColor(status))
+}
+
+func probeStateChanged(current, previous *probeResult) bool {
+	if current.Status != previous.Status {
+		return true
+	}
+
+	for index := range current.DNS {
+		if current.DNS[index].Status != previous.DNS[index].Status {
+			return true
+		}
+	}
+
+	for index := range current.ICMP {
+		if current.ICMP[index].Status != previous.ICMP[index].Status {
+			return true
+		}
+	}
+
+	return false
+}
+
+func speedText(speed uint64) string {
+	if speed == 0 || speed == ^uint64(0) {
+		return "Unknown"
+	}
+
+	if speed >= 1000000000 {
+		return strconv.FormatFloat(float64(speed)/1000000000, 'f', -1, 64) + " Gbps"
+	}
+
+	return strconv.FormatFloat(float64(speed)/1000000, 'f', -1, 64) + " Mbps"
+}
+
+func statusColor(status string) gui.Color {
+	switch status {
+	case statusOK:
+		return colorGreen
+	case statusTimeout, statusPartial, statusIncomplete:
+		return colorAmber
+	case statusPermission:
+		return colorOrange
+	case statusError, statusDNSError:
+		return colorRed
+	default:
+		return colorMuted
+	}
+}
+
+func neighborColor(state string) gui.Color {
+	switch state {
+	case "reachable", "permanent", "stale", "delay", "probe", "noarp":
+		return colorGreen
+	case "unreachable", "missing":
+		return colorRed
+	default:
+		return colorAmber
+	}
+}
+
+func lineChart(config chart.LineCfg, emptyMessage string) gui.View {
+	if len(config.Series) > 0 {
+		return chart.Line(config)
+	}
+
+	return gui.Column(gui.ContainerCfg{
+		ID:      config.ID + "-empty",
+		Sizing:  config.Sizing,
+		Width:   config.Width,
+		Height:  config.Height,
+		Color:   colorPanel,
+		Padding: gui.PadAll(12),
+		Spacing: gui.SpacingPx(6),
+		Content: []gui.View{label(config.Title, 13, colorText), paragraph(emptyMessage, 11, colorMuted)},
+	})
+}
