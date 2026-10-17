@@ -223,13 +223,11 @@ func applicationLatency(result *applicationResult, index int) (time.Duration, bo
 }
 
 func applicationDetail(result *applicationResult, index int) string {
-	detail := result.Finished.Format("15:04:05")
+	detail := "TCP " + phaseText(result.TCP)
 
 	if index == 1 {
-		detail += " | DNS " + phaseText(result.DNS)
+		detail = "DNS " + phaseText(result.DNS) + " | " + detail
 	}
-
-	detail += " | TCP " + phaseText(result.TCP)
 
 	if index == 1 {
 		detail += " | TLS " + phaseText(result.TLS) + " | TTFB " + phaseText(result.TTFB)

@@ -75,7 +75,7 @@ func controlButton(id, text string, action func(gui.EventCtx)) gui.View {
 		Sizing:  gui.FitFit,
 		Padding: gui.PadVH(4, 8),
 		Radius:  gui.RadiusPx(0),
-		Colors:  gui.ColorSet{Base: colorPanel, Hover: colorBorder, Click: colorBackground, Focus: colorBorder, BorderFocus: colorMuted, Border: colorBorder},
+		Colors:  gui.ColorSet{Base: colorControl, Hover: colorHover, Click: colorBackground, Focus: colorHover, BorderFocus: colorMuted, Border: colorBorder},
 		Content: []gui.View{label(text, 11, colorText)},
 		OnClick: action,
 	})

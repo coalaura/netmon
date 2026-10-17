@@ -60,17 +60,22 @@ type dashboard struct {
 }
 
 var (
-	colorBackground = gui.Hex(0x161616)
-	colorPanel      = gui.Hex(0x202020)
-	colorBorder     = gui.Hex(0x383838)
-	colorText       = gui.Hex(0xE5E5E5)
-	colorMuted      = gui.Hex(0xA5A5A5)
-	colorGreen      = gui.Hex(0x8DCAA0)
-	colorTeal       = gui.Hex(0x60C4B7)
-	colorSand       = gui.Hex(0xDBC18B)
-	colorAmber      = gui.Hex(0xEEB45D)
-	colorRed        = gui.Hex(0xED8076)
-	colorOrange     = gui.Hex(0xD99568)
+	colorBackground = gui.Hex(0x121212)
+	colorPanel      = gui.Hex(0x1B1B1B)
+	colorChart      = gui.Hex(0x1E1E1E)
+	colorControl    = gui.Hex(0x202020)
+	colorHover      = gui.Hex(0x2A2A2A)
+	colorBorder     = gui.Hex(0x333333)
+	colorGrid       = gui.Hex(0x2B2B2B)
+	colorSubtle     = gui.Hex(0x818181)
+	colorText       = gui.Hex(0xDADADA)
+	colorMuted      = gui.Hex(0x989898)
+	colorGreen      = gui.Hex(0x76D6A1)
+	colorTeal       = gui.Hex(0x45CDBF)
+	colorSand       = gui.Hex(0xE1BD70)
+	colorAmber      = gui.Hex(0xE9B04F)
+	colorRed        = gui.Hex(0xEF7373)
+	colorOrange     = gui.Hex(0xE79559)
 	probeColors     = [probeCount]gui.Color{colorGreen, colorSand, colorGreen, colorSand, colorTeal}
 )
 
@@ -347,7 +352,7 @@ func (dashboard *dashboard) view(_ *gui.Window) gui.View {
 				Sizing:   gui.FitFit,
 				Padding:  gui.PadVH(4, 8),
 				Radius:   gui.RadiusPx(0),
-				Colors:   gui.ColorSet{Base: colorPanel, Hover: colorBorder, Click: colorBackground, Focus: colorBorder, BorderFocus: colorMuted, Border: colorBorder},
+				Colors:   gui.ColorSet{Base: colorControl, Hover: colorHover, Click: colorBackground, Focus: colorHover, BorderFocus: colorMuted, Border: colorBorder},
 				Disabled: dashboard.csvOpening,
 				Content:  []gui.View{label("Open CSV", 11, colorText)},
 				OnClick:  dashboard.openCSV,
@@ -503,8 +508,8 @@ func (dashboard *dashboard) eventPanel() gui.View {
 			Spacing:       gui.SpacingPx(3),
 			Scrollable:    true,
 			ClipContents:  true,
-			ScrollbarCfgX: &gui.ScrollbarCfg{Size: 5, Radius: gui.RadiusPx(0), ColorThumb: colorMuted, ColorBackground: colorPanel},
-			ScrollbarCfgY: &gui.ScrollbarCfg{Size: 6, Radius: gui.RadiusPx(0), ColorThumb: colorMuted, ColorBackground: colorPanel},
+			ScrollbarCfgX: &gui.ScrollbarCfg{Size: 5, Radius: gui.RadiusPx(0), ColorThumb: colorSubtle, ColorBackground: colorPanel},
+			ScrollbarCfgY: &gui.ScrollbarCfg{Size: 6, Radius: gui.RadiusPx(0), ColorThumb: colorSubtle, ColorBackground: colorPanel},
 			Content:       rows,
 		}),
 	})
@@ -549,13 +554,13 @@ func (dashboard *dashboard) openCSV(event gui.EventCtx) {
 func newDashboard(monitor *monitor) *dashboard {
 	chartTheme := theme.Default()
 
-	chartTheme.Background = colorPanel
+	chartTheme.Background = colorChart
 	chartTheme.TitleStyle = gui.TextStyle{Size: 13, Color: colorText}
 	chartTheme.LabelStyle = gui.TextStyle{Size: 11, Color: colorMuted}
 	chartTheme.TickStyle = gui.TextStyle{Size: 10, Color: colorMuted}
 	chartTheme.TooltipStyle = gui.TextStyle{Size: 11, Color: colorText}
-	chartTheme.GridColor = colorBorder
-	chartTheme.AxisColor = colorBorder
+	chartTheme.GridColor = colorGrid
+	chartTheme.AxisColor = colorSubtle
 	chartTheme.Legend.TextStyle = gui.TextStyle{Size: 10, Color: colorText}
 	chartTheme.Legend.Background = colorPanel
 	chartTheme.Legend.Position = theme.LegendNone
@@ -737,7 +742,7 @@ func lineChart(config chart.LineCfg, emptyMessage string) gui.View {
 		Sizing:  config.Sizing,
 		Width:   config.Width,
 		Height:  config.Height,
-		Color:   colorPanel,
+		Color:   colorChart,
 		Padding: gui.PadAll(12),
 		Spacing: gui.SpacingPx(6),
 		Content: []gui.View{label(config.Title, 13, colorText), paragraph(emptyMessage, 11, colorMuted)},
