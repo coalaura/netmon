@@ -127,6 +127,12 @@ func (monitor *monitor) recordTrace(result *traceResult) {
 	monitor.mu.Lock()
 	defer monitor.mu.Unlock()
 
+	var last *traceResult
+
+	if monitor.traceCount > 0 {
+		last = monitor.traces[(monitor.traceNext-1+traceHistorySize)%traceHistorySize]
+	}
+
 	if result.Status == statusOK {
 		for offset := range monitor.traceCount {
 			index := (monitor.traceNext - 1 - offset + traceHistorySize) % traceHistorySize
@@ -145,6 +151,17 @@ func (monitor *monitor) recordTrace(result *traceResult) {
 	}
 
 	monitor.traces[monitor.traceNext] = result
+
+	if traceStateChanged(last, result) {
+		message := "Traceroute: " + result.Status + " | " + result.Detail
+
+		if result.Change != "" {
+			message += " | " + result.Change
+		}
+
+		monitor.addEvent(result.Finished, message)
+	}
+
 	monitor.traceNext = (monitor.traceNext + 1) % traceHistorySize
 	monitor.traceCount = min(monitor.traceCount+1, traceHistorySize)
 }
@@ -229,4 +246,16 @@ func traceChange(previous, current *traceResult) string {
 	}
 
 	return ""
+}
+
+func traceStateChanged(previous, current *traceResult) bool {
+	if previous == nil || previous.Status != current.Status || previous.Target != current.Target || previous.Protocol != current.Protocol || !sameTraceNetwork(&previous.Interface, &current.Interface) {
+		return true
+	}
+
+	if current.Status == statusOK {
+		return current.Change != ""
+	}
+
+	return previous.Detail != current.Detail
 }

@@ -12,7 +12,7 @@ import (
 type csvLog struct {
 	file   *os.File
 	writer *csv.Writer
-	row    [30]string
+	row    [53]string
 	failed error
 }
 
@@ -22,7 +22,6 @@ func (writer *csvLog) write(current *sample) error {
 	}
 
 	writer.prepare(current.Time, &current.Interface)
-
 	row := &writer.row
 
 	for index := range current.Probes {
@@ -80,9 +79,12 @@ func (writer *csvLog) write(current *sample) error {
 		}
 	}
 
-	writer.writer.Flush()
-	writer.failed = writer.writer.Error()
-	return writer.failed
+	err := writer.writeTraffic(current)
+	if err != nil {
+		return err
+	}
+
+	return writer.writeConnections(current)
 }
 
 func (writer *csvLog) prepare(timestamp time.Time, state *interfaceState) {
@@ -103,7 +105,7 @@ func (writer *csvLog) prepare(timestamp time.Time, state *interfaceState) {
 	row[10] = state.ResolverSource
 	row[11] = state.Error
 	row[18] = "IPv4"
-	row[19] = "4"
+	row[19] = "6"
 }
 
 func (writer *csvLog) writeTrace(result *traceResult) error {
@@ -112,7 +114,6 @@ func (writer *csvLog) writeTrace(result *traceResult) error {
 	}
 
 	writer.prepare(result.Finished, &result.Interface)
-
 	row := &writer.row
 
 	row[12] = "Traceroute"
@@ -188,6 +189,113 @@ func (writer *csvLog) writeResult(query, status string, duration time.Duration, 
 	return writer.writer.Write(row[:])
 }
 
+func (writer *csvLog) writeTraffic(current *sample) error {
+	traffic := &current.Traffic
+	counters := &traffic.Counters
+
+	writer.prepare(counters.Time, &current.Interface)
+	row := &writer.row
+
+	row[12] = "Interface traffic"
+	row[20] = "traffic"
+	row[15] = statusUnavailable
+	row[17] = traffic.Detail
+
+	if counters.Available {
+		row[15] = "baseline"
+		values := [6]uint64{counters.RXBytes, counters.TXBytes, counters.RXErrors, counters.TXErrors, counters.RXDiscards, counters.TXDiscards}
+
+		for index, value := range values {
+			row[30+index] = strconv.FormatUint(value, 10)
+		}
+	}
+
+	if traffic.Valid {
+		row[15] = statusOK
+		row[36] = strconv.FormatFloat(traffic.RXBitsPerSecond, 'f', 3, 64)
+		row[37] = strconv.FormatFloat(traffic.TXBitsPerSecond, 'f', 3, 64)
+		row[38] = strconv.FormatUint(traffic.RXErrors, 10)
+		row[39] = strconv.FormatUint(traffic.TXErrors, 10)
+		row[40] = strconv.FormatUint(traffic.RXDiscards, 10)
+		row[41] = strconv.FormatUint(traffic.TXDiscards, 10)
+		row[42] = milliseconds(traffic.Interval)
+	}
+
+	writer.failed = writer.writer.Write(row[:])
+	return writer.failed
+}
+
+func (writer *csvLog) writeConnections(current *sample) error {
+	counts := &current.Connections
+
+	writer.prepare(counts.Time, &current.Interface)
+	row := &writer.row
+
+	row[12] = "TCP connections"
+	row[13] = "system-wide"
+	row[15] = statusUnavailable
+	row[17] = counts.Detail
+	row[18] = "IPv4+IPv6"
+	row[20] = "connections"
+
+	if counts.Available {
+		row[15] = statusOK
+		row[51] = strconv.Itoa(counts.Total)
+		row[52] = strconv.Itoa(counts.Established)
+	}
+
+	writer.failed = writer.writer.Write(row[:])
+	writer.writer.Flush()
+
+	writer.failed = errors.Join(writer.failed, writer.writer.Error())
+	return writer.failed
+}
+
+func (writer *csvLog) writeApplication(current *applicationSample) error {
+	if writer.failed != nil {
+		return writer.failed
+	}
+
+	for index := range current.Checks {
+		result := &current.Checks[index]
+
+		writer.prepare(result.Started, &current.Interface)
+		row := &writer.row
+
+		row[12] = applicationNames[index]
+		row[13] = result.Target
+		row[20] = "application"
+		row[43] = result.Stage
+
+		phases := [4]phaseTiming{result.DNS, result.TCP, result.TLS, result.TTFB}
+
+		for phaseIndex, phase := range phases {
+			if phase.Measured {
+				row[44+phaseIndex] = milliseconds(phase.Duration)
+			}
+		}
+
+		if result.HTTPStatus != 0 {
+			row[48] = strconv.Itoa(result.HTTPStatus)
+		}
+
+		row[49] = result.Remote
+		row[50] = result.Finished.Format(time.RFC3339Nano)
+
+		attempted, succeeded := outcomeCounts(result.Status)
+
+		writer.failed = writer.writeResult("", result.Status, result.Finished.Sub(result.Started), result.Detail, attempted, succeeded)
+		if writer.failed != nil {
+			return writer.failed
+		}
+	}
+
+	writer.writer.Flush()
+
+	writer.failed = writer.writer.Error()
+	return writer.failed
+}
+
 func (writer *csvLog) close() error {
 	writer.writer.Flush()
 
@@ -206,8 +314,11 @@ func openCSV(path string) (*csvLog, error) {
 	}
 
 	writer := &csvLog{file: file, writer: csv.NewWriter(file)}
-	header := []string{"timestamp", "interface_index", "interface", "source_ipv4", "link", "link_speed_bps", "gateway", "gateway_arp", "default_route", "interface_dns", "resolver_source", "interface_error", "monitor", "target", "query", "status", "latency_ms", "detail", "address_family", "schema_version", "record_type", "attempted", "succeeded", "trace_started", "trace_protocol", "hop", "hop_address", "hop_count", "trace_change", "trace_duration_ms"}
+
+	header := []string{"timestamp", "interface_index", "interface", "source_ipv4", "link", "link_speed_bps", "gateway", "gateway_arp", "default_route", "interface_dns", "resolver_source", "interface_error", "monitor", "target", "query", "status", "latency_ms", "detail", "address_family", "schema_version", "record_type", "attempted", "succeeded", "trace_started", "trace_protocol", "hop", "hop_address", "hop_count", "trace_change", "trace_duration_ms", "rx_bytes", "tx_bytes", "rx_errors", "tx_errors", "rx_discards", "tx_discards", "rx_bps", "tx_bps", "rx_errors_delta", "tx_errors_delta", "rx_discards_delta", "tx_discards_delta", "counter_interval_ms", "check_stage", "dns_ms", "connect_ms", "tls_ms", "ttfb_ms", "http_status", "remote_address", "check_finished", "tcp_total", "tcp_established"}
+
 	err = writer.writer.Write(header)
+
 	writer.writer.Flush()
 
 	err = errors.Join(err, writer.writer.Error())
@@ -218,4 +329,8 @@ func openCSV(path string) (*csvLog, error) {
 	}
 
 	return writer, nil
+}
+
+func milliseconds(duration time.Duration) string {
+	return strconv.FormatFloat(float64(duration)/float64(time.Millisecond), 'f', 3, 64)
 }

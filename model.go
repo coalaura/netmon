@@ -53,25 +53,35 @@ type probeResult struct {
 }
 
 type sample struct {
-	Time      time.Time
-	Interface interfaceState
-	Probes    [probeCount]probeResult
+	Time        time.Time
+	Interface   interfaceState
+	Probes      [probeCount]probeResult
+	Traffic     trafficSample
+	Connections connectionSample
 }
 
 type monitor struct {
-	mu           sync.RWMutex
-	history      [historySize]sample
-	next         int
-	count        int
-	version      uint64
-	logPath      string
-	logError     string
-	done         chan struct{}
-	traces       [traceHistorySize]*traceResult
-	traceNext    int
-	traceCount   int
-	traceRunning bool
-	traceDue     time.Time
+	mu                 sync.RWMutex
+	history            [historySize]sample
+	next               int
+	count              int
+	version            uint64
+	logPath            string
+	logError           string
+	done               chan struct{}
+	traces             [traceHistorySize]*traceResult
+	traceNext          int
+	traceCount         int
+	traceRunning       bool
+	traceDue           time.Time
+	application        *applicationSample
+	applications       [historySize]*applicationSample
+	applicationNext    int
+	applicationCount   int
+	applicationRunning bool
+	events             [32]string
+	eventNext          int
+	eventCount         int
 }
 
 var probeNames = [probeCount]string{"Gateway ICMP", "Internet ICMP", "Interface DNS", "Public DNS", "Gateway DNS"}
@@ -105,7 +115,21 @@ func (monitor *monitor) run(ctx context.Context, writer *csvLog, notify func()) 
 	ticker := time.NewTicker(sampleInterval)
 	defer ticker.Stop()
 
-	tracer := traceSampler{}
+	var (
+		tracer       traceSampler
+		applications applicationSampler
+		connections  connectionSampler
+	)
+
+	defer func() {
+		result := applications.stop()
+		if result != nil && writer != nil {
+			err := writer.writeApplication(result)
+			if err != nil {
+				log.Errorf("Writing final application checks: %v", err)
+			}
+		}
+	}()
 
 	defer func() {
 		result := tracer.stop()
@@ -121,6 +145,7 @@ func (monitor *monitor) run(ctx context.Context, writer *csvLog, notify func()) 
 
 	var (
 		previous         interfaceState
+		previousCounters interfaceCounters
 		gateway          netip.Addr
 		gatewayInterface int
 		gatewayDNS       bool
@@ -132,7 +157,15 @@ func (monitor *monitor) run(ctx context.Context, writer *csvLog, notify func()) 
 		current := sample{Time: time.Now()}
 		current.Interface = discoverInterface(ctx, previous)
 
+		counters := readInterfaceCounters(&current.Interface)
+
+		current.Traffic = measureTraffic(&current.Interface, &previous, &counters, &previousCounters)
+
+		previousCounters = counters
+
 		previous = current.Interface
+
+		current.Connections = connections.sample()
 
 		if !dnsWarmed && current.Interface.Address.IsValid() && current.Interface.Link == "up" {
 			servers := [3]netip.AddrPort{
@@ -180,12 +213,21 @@ func (monitor *monitor) run(ctx context.Context, writer *csvLog, notify func()) 
 			monitor.recordTrace(trace)
 		}
 
+		application := applications.advance(ctx, current.Interface, time.Now())
+		if application != nil {
+			monitor.recordApplication(application)
+		}
+
 		var err error
 
 		if writer != nil {
 			err = writer.write(&current)
 			if trace != nil && err == nil {
 				err = writer.writeTrace(trace)
+			}
+
+			if application != nil && err == nil {
+				err = writer.writeApplication(application)
 			}
 		}
 
@@ -196,11 +238,13 @@ func (monitor *monitor) run(ctx context.Context, writer *csvLog, notify func()) 
 			log.Errorf("CSV logging stopped: %v", err)
 		}
 
+		monitor.recordChanges(&current)
 		monitor.history[monitor.next] = current
 		monitor.next = (monitor.next + 1) % historySize
 		monitor.count = min(monitor.count+1, historySize)
 		monitor.traceRunning = tracer.cancel != nil && !tracer.invalidated
 		monitor.traceDue = tracer.next
+		monitor.applicationRunning = applications.cancel != nil && !applications.invalidated
 		monitor.version++
 		monitor.mu.Unlock()
 
@@ -272,7 +316,7 @@ func outcomeCounts(status string) (int, int) {
 
 func statusSeverity(status string) int {
 	switch status {
-	case statusError, statusDNSError:
+	case statusError, statusDNSError, statusRefused, statusTLS, statusHTTP:
 		return 4
 	case statusPermission:
 		return 3

@@ -21,27 +21,42 @@ type fixedTimeAxis struct {
 	*axis.Time
 }
 
+type fixedValueAxis struct {
+	*axis.Linear
+}
+
 type dashboard struct {
-	series       [2][]series.XY
-	regions      [2][]chart.RegionAnnotation
-	start        time.Time
-	end          time.Time
-	events       []string
-	traceDue     time.Time
-	tracePoints  []series.Point
-	traceSeries  []series.XY
-	traceRegions []chart.RegionAnnotation
-	logError     string
-	csvOpenError string
-	monitor      *monitor
-	current      sample
-	version      uint64
-	points       [probeCount][]series.Point
-	chartTheme   *theme.Theme
-	loss         [probeCount]string
-	trace        *traceResult
-	csvOpening   bool
-	traceRunning bool
+	series             [2][]series.XY
+	regions            [2][]chart.RegionAnnotation
+	start              time.Time
+	end                time.Time
+	events             []string
+	traceDue           time.Time
+	tracePoints        []series.Point
+	traceSeries        []series.XY
+	traceRegions       []chart.RegionAnnotation
+	logError           string
+	csvOpenError       string
+	monitor            *monitor
+	current            sample
+	version            uint64
+	points             [probeCount][]series.Point
+	chartTheme         *theme.Theme
+	loss               [probeCount]string
+	trace              *traceResult
+	csvOpening         bool
+	traceRunning       bool
+	application        *applicationSample
+	applicationRunning bool
+	frozen             bool
+	showStats          bool
+	stats              [probeCount][3]latencySummary
+	applicationStats   [2]latencySummary
+	applicationPoints  [2][]series.Point
+	applicationSeries  []series.XY
+	applicationRegions []chart.RegionAnnotation
+	connectionPoints   [2][]series.Point
+	connectionSeries   []series.XY
 }
 
 var (
@@ -64,7 +79,15 @@ func (*fixedTimeAxis) SetRange(_, _ float64) {
 	// Keep the supplied rolling window instead, including when samples are missing.
 }
 
+func (*fixedValueAxis) SetRange(_, _ float64) {
+	// Preserve the zero baseline and headroom instead of fitting only the observed values.
+}
+
 func (dashboard *dashboard) refresh() {
+	if dashboard.frozen {
+		return
+	}
+
 	monitor := dashboard.monitor
 
 	monitor.mu.RLock()
@@ -74,16 +97,25 @@ func (dashboard *dashboard) refresh() {
 		return
 	}
 
-	previous := dashboard.current
-
 	dashboard.current = monitor.history[(monitor.next+historySize-1)%historySize]
 	dashboard.version = monitor.version
 	dashboard.logError = monitor.logError
 	dashboard.end = dashboard.current.Time
 	dashboard.start = dashboard.end.Add(-chartWindow)
 
-	dashboard.recordChanges(&previous)
+	dashboard.application = monitor.application
+	dashboard.applicationRunning = monitor.applicationRunning
+	dashboard.events = dashboard.events[:0]
+
+	for offset := range monitor.eventCount {
+		index := (monitor.eventNext - monitor.eventCount + offset + len(monitor.events)) % len(monitor.events)
+		dashboard.events = append(dashboard.events, monitor.events[index])
+	}
+
 	dashboard.refreshTraces()
+	dashboard.refreshStats()
+	dashboard.refreshApplications()
+	dashboard.refreshConnections()
 
 	for index := range dashboard.points {
 		dashboard.points[index] = dashboard.points[index][:0]
@@ -206,36 +238,26 @@ func (dashboard *dashboard) appendRegion(index int, coordinate float64, results 
 	dashboard.regions[index] = append(regions, chart.RegionAnnotation{Axis: chart.AnnotationX, Min: coordinate - 0.5, Max: coordinate + 0.5, Color: color})
 }
 
-func (dashboard *dashboard) recordChanges(previous *sample) {
-	state := &dashboard.current.Interface
-	if previous.Time.IsZero() || previous.Interface != *state {
-		dashboard.addEvent(fmt.Sprintf("%s | %s | %s | %s | ARP %s | route %t", state.Name, addressText(state.Address), state.Link, speedText(state.Speed), state.ARP, state.DefaultRoute))
-	}
-
-	for index := range dashboard.current.Probes {
-		result := &dashboard.current.Probes[index]
-		if probeStateChanged(result, &previous.Probes[index]) {
-			dashboard.addEvent(probeNames[index] + ": " + result.Status + " | " + result.Detail)
-		}
-	}
-}
-
-func (dashboard *dashboard) addEvent(message string) {
-	if len(dashboard.events) == cap(dashboard.events) {
-		copy(dashboard.events, dashboard.events[1:])
-
-		dashboard.events = dashboard.events[:len(dashboard.events)-1]
-	}
-
-	dashboard.events = append(dashboard.events, dashboard.current.Time.Format("15:04:05")+"  "+message)
-}
-
 func (dashboard *dashboard) view(_ *gui.Window) gui.View {
 	state := &dashboard.current.Interface
 	updated := "Discovering network..."
 
 	if !dashboard.current.Time.IsZero() {
 		updated = "LIVE  |  " + dashboard.current.Time.Format("15:04:05") + "  |  IPv4  |  1s sampling"
+	}
+
+	freezeLabel := "Freeze display"
+	statsLabel := "Stats"
+	headerColor := colorGreen
+
+	if dashboard.frozen {
+		updated = "FROZEN  |  " + dashboard.end.Format("15:04:05") + "  |  sampling and CSV continue"
+		freezeLabel = "Resume live"
+		headerColor = colorAmber
+	}
+
+	if dashboard.showStats {
+		statsLabel = "Stats: on"
 	}
 
 	interfaceName := state.Name
@@ -264,8 +286,9 @@ func (dashboard *dashboard) view(_ *gui.Window) gui.View {
 			Spacing: gui.SpacingPx(12),
 			Content: []gui.View{
 				label("NETMON", 16, colorText),
-				paragraph("INTERFACE / ICMP / DNS / ROUTE", 11, colorMuted),
-				label(updated, 12, colorGreen),
+				paragraph(updated, 11, headerColor),
+				controlButton("stats", statsLabel, dashboard.toggleStats),
+				controlButton("freeze", freezeLabel, dashboard.toggleFreeze),
 			},
 		}),
 		gui.Row(gui.ContainerCfg{
@@ -279,15 +302,23 @@ func (dashboard *dashboard) view(_ *gui.Window) gui.View {
 				metricCard("DEFAULT ROUTE", route, "DNS: "+addressText(state.Resolver), routeColor),
 			},
 		}),
+		dashboard.trafficRow(),
 		gui.Row(gui.ContainerCfg{
 			Sizing:  gui.FillFit,
 			Padding: gui.PaddingNone,
 			Spacing: gui.SpacingPx(6),
-			Content: []gui.View{dashboard.latencyChart(0, 2, "ICMP / gateway RTT + remote mean", "icmp"), dashboard.latencyChart(2, 5, "DNS mean / successful hosts", "dns")},
+			Content: []gui.View{dashboard.latencyChart(0, 2, "ICMP RTT / remote mean", "icmp"), dashboard.latencyChart(2, 5, "DNS mean", "dns")},
+		}),
+		gui.Row(gui.ContainerCfg{
+			Sizing:  gui.FillFit,
+			Padding: gui.PaddingNone,
+			Spacing: gui.SpacingPx(6),
+			Content: []gui.View{dashboard.applicationChart(), dashboard.connectionChart()},
 		}),
 		paragraph("5 MIN WINDOW  |  Amber: timeout / partial results; red: error; orange: permission. Means include successful replies only; gaps: none succeeded.", 11, colorMuted),
 		dashboard.probeTable(),
 		paragraph("DNS: example.com / google.com / cloudflare.com concurrently; mean of successful hosts. Resolver: "+state.ResolverSource, 11, colorMuted),
+		paragraph("Latency: ICMP RTT / DNS mean / TCP connect / HTTPS total. TCP and HTTPS: fresh connections every 2s, 1.5s deadline.", 11, colorMuted),
 		dashboard.tracePanel(),
 	}
 
@@ -363,7 +394,7 @@ func (dashboard *dashboard) latencyChart(first, last int, title, id string) gui.
 		ID:            id,
 		Title:         title,
 		Sizing:        gui.FillFixed,
-		Height:        220,
+		Height:        180,
 		Theme:         dashboard.chartTheme,
 		Version:       dashboard.version,
 		TooltipXLabel: "Time",
@@ -371,7 +402,7 @@ func (dashboard *dashboard) latencyChart(first, last int, title, id string) gui.
 		Annotations:   chart.Annotations{Regions: dashboard.regions[regionIndex]},
 		Series:        dashboard.series[regionIndex],
 		XAxis:         &fixedTimeAxis{Time: axis.NewTime(axis.TimeCfg{Min: dashboard.start, Max: dashboard.end, Format: "15:04:05"})},
-		YAxis:         axis.NewLinear(axis.LinearCfg{Title: "ms", Min: 0, Max: maximum, TickCount: 5}),
+		YAxis:         &fixedValueAxis{Linear: axis.NewLinear(axis.LinearCfg{Title: "ms", Min: 0, Max: maximum, TickCount: 5})},
 		LineWidth:     1.5,
 		ShowMarkers:   false,
 	}, "No successful samples in this window")
@@ -385,15 +416,21 @@ func (dashboard *dashboard) latencyChart(first, last int, title, id string) gui.
 }
 
 func (dashboard *dashboard) probeTable() gui.View {
-	rows := make([]gui.View, 0, probeCount+1)
+	rows := make([]gui.View, 0, probeCount+len(applicationNames)+1)
+
+	detailTitle := "HOST RESULTS / DETAIL"
+
+	if dashboard.showStats {
+		detailTitle = "HOST: P50 / P95 / JITTER (ms) / LOSS | 5M, CURRENT INTERFACE / TARGETS"
+	}
 
 	rows = append(rows, probeRow([]gui.View{
 		fixedLabel("MONITOR", 110, colorMuted),
 		fixedLabel("RESULT", 94, colorMuted),
-		fixedLabel("RTT / MEAN", 84, colorMuted),
+		fixedLabel("LATENCY", 84, colorMuted),
 		fixedLabel("FAIL / 5M", 72, colorMuted),
 		fixedLabel("TARGET", 108, colorMuted),
-		paragraph("HOST RESULTS / DETAIL", 11, colorMuted),
+		paragraph(detailTitle, 10, colorMuted),
 	}))
 
 	order := [probeCount]int{0, 1, 2, 4, 3}
@@ -424,15 +461,23 @@ func (dashboard *dashboard) probeTable() gui.View {
 			latency = strconv.FormatFloat(float64(result.Duration)/float64(time.Millisecond), 'f', 1, 64) + " ms"
 		}
 
+		detail := probeDetail(result)
+
+		if dashboard.showStats {
+			detail = dashboard.statsDetail(index)
+		}
+
 		rows = append(rows, probeRow([]gui.View{
 			fixedLabel(probeNames[index], 110, probeColors[index]),
 			fixedLabel(status, 94, statusColor(result.Status)),
 			fixedLabel(latency, 84, colorText),
 			fixedLabel(dashboard.loss[index], 72, colorMuted),
 			fixedLabel(target, 108, colorText),
-			probeDetail(result),
+			detail,
 		}))
 	}
+
+	rows = dashboard.appendApplicationRows(rows)
 
 	return panel(rows)
 }
@@ -441,7 +486,7 @@ func (dashboard *dashboard) eventPanel() gui.View {
 	rows := make([]gui.View, 0, max(1, len(dashboard.events)))
 
 	for _, message := range slices.Backward(dashboard.events) {
-		rows = append(rows, paragraph(message, 11, colorMuted))
+		rows = append(rows, label(message, 11, colorMuted))
 	}
 
 	if len(dashboard.events) == 0 {
@@ -457,8 +502,8 @@ func (dashboard *dashboard) eventPanel() gui.View {
 			Padding:       gui.PaddingNone,
 			Spacing:       gui.SpacingPx(3),
 			Scrollable:    true,
-			ScrollMode:    gui.ScrollVerticalOnly,
 			ClipContents:  true,
+			ScrollbarCfgX: &gui.ScrollbarCfg{Size: 5, Radius: gui.RadiusPx(0), ColorThumb: colorMuted, ColorBackground: colorPanel},
 			ScrollbarCfgY: &gui.ScrollbarCfg{Size: 6, Radius: gui.RadiusPx(0), ColorThumb: colorMuted, ColorBackground: colorPanel},
 			Content:       rows,
 		}),
@@ -522,15 +567,23 @@ func newDashboard(monitor *monitor) *dashboard {
 	now := time.Now()
 
 	dashboard := &dashboard{
-		monitor:      monitor,
-		chartTheme:   chartTheme,
-		start:        now.Add(-chartWindow),
-		end:          now,
-		logError:     monitor.logError,
-		events:       make([]string, 0, 32),
-		tracePoints:  make([]series.Point, 0, traceHistorySize),
-		traceSeries:  make([]series.XY, 0, traceHistorySize),
-		traceRegions: make([]chart.RegionAnnotation, 0, traceHistorySize),
+		monitor:            monitor,
+		chartTheme:         chartTheme,
+		start:              now.Add(-chartWindow),
+		end:                now,
+		logError:           monitor.logError,
+		events:             make([]string, 0, 32),
+		tracePoints:        make([]series.Point, 0, traceHistorySize),
+		traceSeries:        make([]series.XY, 0, traceHistorySize),
+		traceRegions:       make([]chart.RegionAnnotation, 0, traceHistorySize),
+		applicationSeries:  make([]series.XY, 0, historySize*2),
+		applicationRegions: make([]chart.RegionAnnotation, 0, historySize*2),
+		connectionSeries:   make([]series.XY, 0, historySize*2),
+	}
+
+	for index := range dashboard.applicationPoints {
+		dashboard.applicationPoints[index] = make([]series.Point, 0, historySize)
+		dashboard.connectionPoints[index] = make([]series.Point, 0, historySize)
 	}
 
 	for index := range dashboard.points {
@@ -656,7 +709,7 @@ func statusColor(status string) gui.Color {
 		return colorAmber
 	case statusPermission:
 		return colorOrange
-	case statusError, statusDNSError:
+	case statusError, statusDNSError, statusRefused, statusTLS, statusHTTP:
 		return colorRed
 	default:
 		return colorMuted

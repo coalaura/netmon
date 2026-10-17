@@ -74,17 +74,7 @@ func (dashboard *dashboard) refreshTraces() {
 		return
 	}
 
-	latest := monitor.traces[(monitor.traceNext+traceHistorySize-1)%traceHistorySize]
-	if latest != dashboard.trace {
-		message := "Traceroute: " + latest.Status + " | " + latest.Detail
-
-		if latest.Change != "" {
-			message += " | " + latest.Change
-		}
-
-		dashboard.addEvent(message)
-		dashboard.trace = latest
-	}
+	dashboard.trace = monitor.traces[(monitor.traceNext+traceHistorySize-1)%traceHistorySize]
 }
 
 func (dashboard *dashboard) appendTraceSeries(start int) {

@@ -65,6 +65,11 @@ func main() {
 
 		window.QueueCommand(func(window *gui.Window) {
 			refreshQueued.Store(false)
+
+			if dashboard.frozen {
+				return
+			}
+
 			dashboard.refresh()
 			window.InvalidateLayout()
 		})
