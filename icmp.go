@@ -1,0 +1,7 @@
+package main
+
+var ICMPRemoteTargets = []string{
+	"9.9.9.9",
+	"1.1.1.1",
+	"8.8.8.8",
+}
