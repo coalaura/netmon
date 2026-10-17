@@ -289,6 +289,7 @@ func (dashboard *dashboard) view(_ *gui.Window) gui.View {
 			Sizing:  gui.FillFit,
 			Padding: gui.PaddingNone,
 			Spacing: gui.SpacingPx(12),
+			VAlign:  gui.VAlignMiddle,
 			Content: []gui.View{
 				label("NETMON", 16, colorText),
 				paragraph(updated, 11, headerColor),

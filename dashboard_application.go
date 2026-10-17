@@ -11,6 +11,10 @@ import (
 	"github.com/go-gui-org/go-gui/gui"
 )
 
+// Checks are dispatched by the main sampling loop after its probes finish.
+// Allow tick quantization and probe-duration jitter without implying an outage.
+const applicationSampleGap = 2 * applicationInterval
+
 var applicationColors = [2]gui.Color{colorTeal, colorSand}
 
 // Called with monitor.mu held. Each completed batch contributes once, not once per UI refresh.
@@ -51,7 +55,7 @@ func (dashboard *dashboard) refreshApplications() {
 			if previous != nil {
 				before := &previous.Checks[checkIndex]
 				gap := result.Started.Sub(before.Started)
-				boundary = boundary || !sameApplicationNetwork(&previous.Interface, &current.Interface) || before.Target != result.Target || gap <= 0 || gap > applicationInterval+sampleInterval
+				boundary = boundary || !sameApplicationNetwork(&previous.Interface, &current.Interface) || before.Target != result.Target || gap <= 0 || gap > applicationSampleGap
 			}
 
 			if boundary {
@@ -97,7 +101,7 @@ func (dashboard *dashboard) refreshApplications() {
 
 			gap := result.Started.Sub(previousTime)
 
-			if !previousTime.IsZero() && gap > 0 && gap <= applicationInterval+sampleInterval {
+			if !previousTime.IsZero() && gap > 0 && gap <= applicationSampleGap {
 				stats.Jitter += (duration - previousDuration).Abs()
 				stats.JitterPairs++
 			}

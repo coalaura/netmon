@@ -42,7 +42,7 @@ func main() {
 	window := gui.NewWindow(gui.WindowCfg{
 		Title:     "Netmon",
 		Width:     1180,
-		Height:    740,
+		Height:    840,
 		MinWidth:  900,
 		MinHeight: 620,
 		BgColor:   colorBackground,
