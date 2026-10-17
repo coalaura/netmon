@@ -168,10 +168,10 @@ func (dashboard *dashboard) appendApplicationRows(rows []gui.View) []gui.View {
 		status := "WAITING"
 		color := colorMuted
 		latency := "--"
-		detail := "Waiting for a usable IPv4 default route"
+		detail := paragraph("Waiting for a usable IPv4 default route", 11, colorMuted)
 
 		if dashboard.applicationRunning {
-			detail = "First check in progress"
+			detail = paragraph("First check in progress", 11, colorMuted)
 		}
 
 		if dashboard.application != nil {
@@ -179,25 +179,16 @@ func (dashboard *dashboard) appendApplicationRows(rows []gui.View) []gui.View {
 
 			status = strings.ToUpper(result.Status)
 			color = statusColor(result.Status)
-			detail = applicationDetail(result, index)
+			detail = dashboard.applicationDetails(index)
 			duration, success := applicationLatency(result, index)
 
 			if success {
 				latency = fmt.Sprintf("%.1f ms", float64(duration)/float64(time.Millisecond))
 			}
 
-			if dashboard.showStats {
-				detail = statisticsText(&dashboard.applicationStats[index]) + " | " + detail
-			}
-
 			if !sameApplicationNetwork(&dashboard.application.Interface, &dashboard.current.Interface) {
 				status = "STALE"
 				color = colorMuted
-				detail = "Previous network | " + detail
-			}
-
-			if dashboard.applicationRunning {
-				detail += " | checking..."
 			}
 		}
 
@@ -207,7 +198,7 @@ func (dashboard *dashboard) appendApplicationRows(rows []gui.View) []gui.View {
 			fixedLabel(latency, 84, colorText),
 			fixedLabel(failureText(&dashboard.applicationStats[index]), 72, colorMuted),
 			fixedLabel(targets[index], 108, colorText),
-			paragraph(detail, 11, color),
+			detail,
 		}))
 	}
 
@@ -224,26 +215,4 @@ func applicationLatency(result *applicationResult, index int) (time.Duration, bo
 	}
 
 	return result.Finished.Sub(result.Started), !result.Started.IsZero() && !result.Finished.Before(result.Started)
-}
-
-func applicationDetail(result *applicationResult, index int) string {
-	detail := "TCP " + phaseText(result.TCP)
-
-	if index == 1 {
-		detail = "DNS " + phaseText(result.DNS) + " | " + detail
-	}
-
-	if index == 1 {
-		detail += " | TLS " + phaseText(result.TLS) + " | TTFB " + phaseText(result.TTFB)
-
-		if result.HTTPStatus != 0 {
-			detail += fmt.Sprintf(" | HTTP %d", result.HTTPStatus)
-		}
-	}
-
-	if result.Status != statusOK {
-		detail += " | " + result.Stage + ": " + result.Detail
-	}
-
-	return detail
 }

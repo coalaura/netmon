@@ -427,8 +427,25 @@ func (dashboard *dashboard) probeTable() gui.View {
 	detailTitle := "HOST RESULTS / DETAIL"
 
 	if dashboard.showStats {
-		detailTitle = "HOST: P50 / P95 / JITTER (ms) / LOSS | 5M, CURRENT INTERFACE / TARGETS"
+		detailTitle = "HOST STATISTICS | 5M, CURRENT INTERFACE / TARGETS"
 	}
+
+	activity := ""
+
+	if dashboard.applicationRunning {
+		activity = "TCP/HTTPS checking..."
+	}
+
+	detailHeader := gui.Row(gui.ContainerCfg{
+		Sizing:  gui.FillFit,
+		Padding: gui.PaddingNone,
+		Spacing: gui.SpacingPx(6),
+		VAlign:  gui.VAlignMiddle,
+		Content: []gui.View{
+			paragraph(detailTitle, 10, colorMuted),
+			gui.Column(gui.ContainerCfg{Sizing: gui.FixedFixed, Width: 120, Height: 14, Padding: gui.PaddingNone, VAlign: gui.VAlignMiddle, Content: []gui.View{label(activity, 10, colorMuted)}}),
+		},
+	})
 
 	rows = append(rows, probeRow([]gui.View{
 		fixedLabel("MONITOR", 110, colorMuted),
@@ -436,7 +453,7 @@ func (dashboard *dashboard) probeTable() gui.View {
 		fixedLabel("LATENCY", 84, colorMuted),
 		fixedLabel("FAIL / 5M", 72, colorMuted),
 		fixedLabel("TARGET", 108, colorMuted),
-		paragraph(detailTitle, 10, colorMuted),
+		detailHeader,
 	}))
 
 	order := [probeCount]int{0, 1, 2, 4, 3}
@@ -629,50 +646,7 @@ func panel(content []gui.View) gui.View {
 }
 
 func probeRow(content []gui.View) gui.View {
-	return gui.Row(gui.ContainerCfg{Sizing: gui.FillFit, Padding: gui.PadVH(2, 0), Spacing: gui.SpacingPx(6), Content: content})
-}
-
-func probeDetail(result *probeResult) gui.View {
-	if result.ICMPAttempted > 0 {
-		hosts := make([]gui.View, 0, icmpTargetCount)
-
-		for index := range result.ICMP {
-			target := &result.ICMP[index]
-			hosts = append(hosts, hostResult(target.Target, target.Status, target.Duration, target.Detail))
-		}
-
-		return gui.Row(gui.ContainerCfg{Sizing: gui.FillFit, Padding: gui.PaddingNone, Spacing: gui.SpacingPx(6), Content: hosts})
-	}
-
-	if result.Query == "" && result.Status == statusOK {
-		return hostResult(result.Target, result.Status, result.Duration, result.Detail)
-	}
-
-	if result.Query == "" || result.DNSAttempted == 0 {
-		return paragraph(result.Detail, 11, colorMuted)
-	}
-
-	hosts := make([]gui.View, 0, dnsTargetCount)
-
-	for index := range result.DNS {
-		query := &result.DNS[index]
-		hosts = append(hosts, hostResult(query.Query, query.Status, query.Duration, query.Detail))
-	}
-
-	return gui.Row(gui.ContainerCfg{Sizing: gui.FillFit, Padding: gui.PaddingNone, Spacing: gui.SpacingPx(6), Content: hosts})
-}
-
-func hostResult(host, status string, duration time.Duration, detail string) gui.View {
-	value := status
-
-	switch status {
-	case statusOK:
-		value = strconv.FormatFloat(float64(duration)/float64(time.Millisecond), 'f', 1, 64) + "ms"
-	case statusDNSError:
-		value = detail
-	}
-
-	return paragraph(host+" "+value, 11, statusColor(status))
+	return gui.Row(gui.ContainerCfg{Sizing: gui.FillFit, Padding: gui.PadVH(2, 0), Spacing: gui.SpacingPx(6), VAlign: gui.VAlignMiddle, Content: content})
 }
 
 func probeStateChanged(current, previous *probeResult) bool {

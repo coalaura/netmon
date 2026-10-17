@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/go-gui-org/go-gui/gui"
 )
@@ -44,31 +43,6 @@ func (dashboard *dashboard) trafficRow() gui.View {
 	return paragraph(text, 11, color)
 }
 
-func (dashboard *dashboard) statsDetail(probeIndex int) gui.View {
-	result := &dashboard.current.Probes[probeIndex]
-
-	cells := make([]gui.View, 0, 3)
-
-	for index := range 3 {
-		host, _, _ := hostOutcome(result, index)
-		if host == "" {
-			continue
-		}
-
-		stats := &dashboard.stats[probeIndex][index]
-
-		color := colorMuted
-
-		if stats.Failed > 0 {
-			color = colorAmber
-		}
-
-		cells = append(cells, paragraph(host+": "+statisticsText(stats), 11, color))
-	}
-
-	return gui.Row(gui.ContainerCfg{Sizing: gui.FillFit, Padding: gui.PaddingNone, Spacing: gui.SpacingPx(6), Content: cells})
-}
-
 func controlButton(id, text string, action func(gui.EventCtx)) gui.View {
 	return gui.Button(gui.ButtonCfg{
 		ID:      id,
@@ -95,30 +69,6 @@ func bitRateText(rate float64) string {
 	}
 
 	return fmt.Sprintf("%.0f bps", rate)
-}
-
-func phaseText(phase phaseTiming) string {
-	if !phase.Measured {
-		return "--"
-	}
-
-	return fmt.Sprintf("%.1fms", float64(phase.Duration)/float64(time.Millisecond))
-}
-
-func statisticsText(stats *latencySummary) string {
-	timing := "-- / -- / --"
-
-	if stats.Samples > 0 {
-		jitter := "--"
-
-		if stats.JitterPairs > 0 {
-			jitter = fmt.Sprintf("%.1f", float64(stats.Jitter)/float64(time.Millisecond))
-		}
-
-		timing = fmt.Sprintf("%.1f / %.1f / %s", float64(stats.Median)/float64(time.Millisecond), float64(stats.P95)/float64(time.Millisecond), jitter)
-	}
-
-	return timing + " / " + failureText(stats)
 }
 
 func failureText(stats *latencySummary) string {
