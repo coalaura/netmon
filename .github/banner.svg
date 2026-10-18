@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="340" viewBox="0 0 1200 340" fill="none" role="img" aria-labelledby="title description">
+	<title id="title">Netmon</title>
+	<desc id="description">Network diagnostics for Windows and Linux. A magnifying glass reveals a gap in the internet probe trace while the gateway trace continues above it.</desc>
+	<defs>
+		<path id="letter-n" d="M0 80V25M0 48C0 12 56 12 56 48V80"/>
+		<mask id="outside-lens" maskUnits="userSpaceOnUse" x="0" y="0" width="1200" height="340">
+			<path fill="#fff" d="M0 0H1200V340H0Z"/>
+			<circle cx="869" cy="228" r="68" fill="#000"/>
+		</mask>
+		<clipPath id="inside-lens">
+			<circle cx="869" cy="228" r="65"/>
+		</clipPath>
+	</defs>
+	<style>
+		.wordmark { stroke: #dadada; }
+		.copy { fill: #989898; font-family: Arial, Helvetica, sans-serif; }
+		.gateway { stroke: #76d6a1; }
+		.internet { stroke: #e1bd70; }
+		.gateway-label { fill: #76d6a1; }
+		.internet-label { fill: #e1bd70; }
+		.lens { stroke: #dadada; }
+		.grip { stroke: #45cdbf; }
+	</style>
+	<!-- Custom monoline lettering keeps the wordmark independent of installed fonts. -->
+	<g class="wordmark" transform="translate(314 32) scale(1.12)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round">
+		<use href="#letter-n"/>
+		<path d="M85 51H142C145 10 85 10 85 51C85 88 126 89 142 72"/>
+		<path d="M190 0V60Q190 80 212 80H225M170 25H219"/>
+		<path d="M250 80V25M250 46C250 15 295 15 295 46V80M295 46C295 15 340 15 340 46V80"/>
+		<path d="M425 52C425 13 367 13 367 52S425 91 425 52Z"/>
+		<use href="#letter-n" x="455"/>
+	</g>
+	<text class="copy" x="600" y="157" text-anchor="middle" font-size="22">Network diagnostics for Windows and Linux</text>
+	<!-- Successful local replies continue while remote replies leave a gap. -->
+	<g class="copy" font-size="17">
+		<text class="gateway-label" x="64" y="193">gateway</text>
+		<text class="internet-label" x="64" y="239">internet</text>
+	</g>
+	<g mask="url(#outside-lens)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+		<path class="gateway" d="M64 211H214L221 208L228 213L235 211H332L339 207L346 212L353 211H458L465 209L472 212L479 211H594L601 207L608 212L615 211H736L743 209L750 212L757 211H976L983 208L990 213L997 211H1136"/>
+		<path class="internet" d="M64 257H182L190 253L198 260L206 256L214 257H290L298 252L306 257H360L368 255L376 260L384 247L392 258L400 256L408 257H490L498 253L506 258L514 257H576L584 254L592 259L600 242L608 256L616 257H684L692 252L700 258L708 255L716 257H798M937 257H980L988 252L996 259L1004 255L1012 257H1060L1068 254L1076 258L1084 257H1136"/>
+	</g>
+	<!-- The lens enlarges the traces without adding an opaque background. -->
+	<g clip-path="url(#inside-lens)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+		<path class="gateway" d="M797 205H821L832 200L843 209L854 205H886L897 201L908 207L919 205H941"/>
+		<path class="internet" d="M797 254H810L821 247L832 259L843 253M887 253L898 245L909 256L920 251L931 254H941"/>
+	</g>
+	<g class="lens" stroke-linecap="round">
+		<path d="M918 277L956 315" stroke-width="13"/>
+		<path class="grip" d="M933 292L956 315" stroke-width="19"/>
+		<circle cx="869" cy="228" r="68" stroke-width="4"/>
+	</g>
+</svg>

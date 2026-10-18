@@ -1,0 +1,92 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }}/${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [linux, windows]
+        arch: [amd64, arm64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Build
+        id: build
+        uses: coalaura/build@v1
+        with:
+          os: ${{ matrix.os }}
+          arch: ${{ matrix.arch }}
+          gui: true
+          optimization: compatible
+          generate: false
+          output: dist/netmon-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.os == 'windows' && '.exe' || '' }}
+
+      - name: Sign
+        id: sign
+        uses: coalaura/sign@v1
+        with:
+          path: ${{ steps.build.outputs.path }}
+          key: ${{ secrets.COALAURA_PFX }}
+          passphrase: ${{ secrets.COALAURA_PFX_PASSWORD }}
+          chain: |
+            https://wiese2.org/pki/issuing.pem
+            https://wiese2.org/pki/root.pem
+
+      - name: Upload signed binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-netmon-${{ matrix.os }}-${{ matrix.arch }}
+          path: ${{ steps.sign.outputs.path }}
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - name: Download signed binaries
+        uses: actions/download-artifact@v8
+        with:
+          pattern: signed-netmon-*
+          merge-multiple: true
+          path: dist
+
+      - name: Generate checksums
+        working-directory: dist
+        run: sha256sum -b netmon-* > SHA256SUMS
+
+      - name: Attest binaries
+        uses: actions/attest@v4
+        with:
+          subject-checksums: dist/SHA256SUMS
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          files: |
+            dist/netmon-*
+            dist/SHA256SUMS
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}

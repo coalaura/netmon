@@ -1,4 +1,8 @@
-# Netmon
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/banner.svg">
+  <source media="(prefers-color-scheme: light)" srcset=".github/banner-light.svg">
+  <img alt="Netmon: a magnified gap in internet replies beside a steady gateway trace." src=".github/banner-light.svg">
+</picture>
 
 A lightweight, dark-themed network diagnosis dashboard for Windows and Linux. Monitoring starts automatically and follows network changes, with no configuration file, interface selection or server setup.
 
