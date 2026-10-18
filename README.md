@@ -2,6 +2,10 @@
 
 A lightweight, dark-themed network diagnosis dashboard for Windows and Linux. Monitoring starts automatically and follows network changes, with no configuration file, interface selection or server setup.
 
+![Rolling ICMP, DNS and TCP/HTTPS latency charts alongside total and established TCP connection counts](.github/graphs.png)
+
+[View full dashboard](.github/full.png)
+
 ## Get started
 
 Download a prebuilt binary from [GitHub Releases](https://github.com/coalaura/netmon/releases) and launch it in a desktop session. Close the window to stop monitoring and flush the log.
@@ -33,14 +37,26 @@ TCP and HTTPS checks run concurrently in the background approximately every two 
 
 ## Reading the dashboard
 
+### Latency and connections
+
 - Remote ICMP and DNS charts show the **mean of successful replies**. Read these alongside success counts and per-target results: losing a slower target can lower the mean even when connectivity worsens.
 - Amber chart bands indicate timeouts or partial results, red indicates errors and orange indicates permission problems. Samples with no successful replies leave gaps rather than plotting zero latency.
 - TCP and HTTPS share the Monitor table with ICMP and DNS. The second graph row shows TCP connection latency and HTTPS total latency on the left and total/established TCP counts on the right. All four graphs use the same rolling five-minute window and markerless lines. HTTPS phase timings remain in the table; totals include DNS, TCP, TLS and HTTP.
 - TCP counts are current socket-table snapshots, not cumulative attempts or an interface-specific measurement. Totals exclude listening and closed sockets but include `TIME_WAIT` and other closing states; established is a subset. Netmon's own checks also contribute to these counts. Unavailable count samples leave gaps; a measured zero remains zero.
+
+### Per-host results and statistics
+
+The Monitor table brings success counts, latency and failure rates together with individual host results and HTTPS phase timings.
+
+![Monitor table with gateway and remote ICMP results, per-host DNS responses, TCP connection latency and HTTPS phase timings](.github/table.png)
+
+Host results use compact nested tables with one row per host and aligned result/latency columns. **Stats** switches these to separate, right-aligned p50, p95, jitter and loss columns for the last five minutes on the current interface/address and target. TCP/HTTPS use the same statistics layout, with HTTPS phase timings in a separate sub-table and failure details below it. Timings use successful replies only; jitter is the mean absolute change between consecutive successful samples, excluding gaps. Small samples, particularly p95, should be interpreted cautiously.
+
+### Network state and changes
+
 - Traceroute reports a destination hop count only when the destination responds. `*` means no reply; hop RTT is the round trip to that router, not the latency of an individual link.
 - Link speed is adapter-reported, not measured throughput. A stale ARP entry is normal. ICMP responses can be filtered or rate-limited, so compare them with DNS and interface status.
 - Traffic rates use the actual interval between counter reads. Error/discard increments are interface-wide OS counters, not remote packet-loss measurements. Interface changes and counter resets establish a new baseline instead of producing a spike.
-- Host results use compact nested tables with one row per host and aligned result/latency columns. **Stats** switches these to separate, right-aligned p50, p95, jitter and loss columns for the last five minutes on the current interface/address and target. TCP/HTTPS use the same statistics layout, with HTTPS phase timings in a separate sub-table and failure details below it. Timings use successful replies only; jitter is the mean absolute change between consecutive successful samples, excluding gaps. Small samples, particularly p95, should be interpreted cautiously.
 - **Freeze display** holds the displayed snapshot while sampling, state-change detection and CSV logging continue. **Resume live** immediately catches up to the latest state. Recent Changes keeps the newest 32 events, one line each, with horizontal and vertical scrolling.
 - Traceroute entries in Recent Changes are change-driven: an initial result, failure/recovery, changed failure reason, network/target change, hop-count change or observed path change. Repeated identical outcomes and timing-only fluctuations do not add entries; every trace still reaches the graph history and CSV.
 
