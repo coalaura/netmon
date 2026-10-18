@@ -21,6 +21,13 @@ jobs:
       matrix:
         os: [linux, windows]
         arch: [amd64, arm64]
+        include:
+          - os: linux
+            arch: amd64
+            interpreter: /lib64/ld-linux-x86-64.so.2
+          - os: linux
+            arch: arm64
+            interpreter: /lib/ld-linux-aarch64.so.1
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -36,7 +43,7 @@ jobs:
           generate: false
           output: dist/netmon-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.os == 'windows' && '.exe' || '' }}
           go-flags: |
-            -ldflags=-X main.version=${{ github.ref_name }}
+            -ldflags=-X main.version=${{ github.ref_name }} ${{ matrix.interpreter && format('-I {0}', matrix.interpreter) || '' }}
 
       - name: Sign
         id: sign
