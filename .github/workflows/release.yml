@@ -35,6 +35,8 @@ jobs:
           optimization: compatible
           generate: false
           output: dist/netmon-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.os == 'windows' && '.exe' || '' }}
+          go-flags: |
+            -ldflags=-X main.version=${{ github.ref_name }}
 
       - name: Sign
         id: sign

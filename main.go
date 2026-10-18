@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -12,9 +13,18 @@ import (
 	"github.com/go-gui-org/go-gui/gui/backend"
 )
 
-var log = plain.New(plain.WithDate(plain.RFC3339Local))
+var (
+	version = "dev"
+	log     = plain.New(plain.WithDate(plain.RFC3339Local))
+)
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "version" {
+		fmt.Printf("netmon version %s\n", version)
+
+		return
+	}
+
 	directory, err := os.UserConfigDir()
 	if err != nil {
 		directory = os.TempDir()
@@ -40,7 +50,7 @@ func main() {
 	gui.SetTheme(gui.ThemeDark)
 
 	window := gui.NewWindow(gui.WindowCfg{
-		Title:     "Netmon",
+		Title:     "Netmon " + version,
 		Width:     1180,
 		Height:    840,
 		MinWidth:  900,
