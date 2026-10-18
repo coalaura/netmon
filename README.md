@@ -82,6 +82,6 @@ Rows are flushed after each sample or completed background check. Logging errors
 ## Platform notes
 
 - **Windows:** uses native network discovery and ICMP traceroute. The native title bar matches the dashboard's background and text colors on Windows 11, with dark mode on supported Windows 10 versions. Styling uses Windows APIs directly and requires no GUI library fork.
-- **Linux:** uses netlink and sysfs for network discovery and systemd-resolved for per-interface DNS with `/etc/resolv.conf` as a fallback. ICMP tries unprivileged ping sockets, then raw sockets; if both are denied, the dashboard reports a permission error while other monitors continue. Traceroute uses UDP without requiring raw-socket privileges. **Open CSV** requires `xdg-open`.
+- **Linux:** uses netlink and sysfs for network discovery and systemd-resolved for per-interface DNS with `/etc/resolv.conf` as a fallback. ICMP monitoring tries unprivileged ping sockets, then raw sockets; if both are denied, the dashboard reports a permission error while other monitors continue. Traceroute prefers ICMP echo using unprivileged ping sockets, falling back to UDP if those sockets are denied or unsupported. The dashboard and CSV report the selected trace protocol. Neither traceroute method requires raw-socket privileges. **Open CSV** requires `xdg-open`.
 
-DNS servers and local stubs may return cached answers. Windows ICMP and Linux UDP traceroutes can follow different paths or encounter different filtering.
+DNS servers and local stubs may return cached answers. Traceroute replies can be filtered or rate-limited even when the destination is reachable; UDP fallback traces can follow different paths or encounter different filtering from ICMP traces.

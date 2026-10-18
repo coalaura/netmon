@@ -92,10 +92,16 @@ func (dashboard *dashboard) tracePanel() gui.View {
 		schedule = "next " + dashboard.traceDue.Format("15:04:05")
 	}
 
-	rows := make([]gui.View, 0, 5)
-	rows = append(rows, paragraph("TRACEROUTE  "+ICMPRemoteTargets[0]+"  |  "+traceProtocol+"  |  every "+traceInterval.String()+"  |  "+schedule, 11, colorText))
-
 	result := dashboard.trace
+	protocol := traceProtocol
+
+	if result != nil {
+		protocol = result.Protocol
+	}
+
+	rows := make([]gui.View, 0, 5)
+	rows = append(rows, paragraph("TRACEROUTE  "+ICMPRemoteTargets[0]+"  |  "+protocol+"  |  every "+traceInterval.String()+"  |  "+schedule, 11, colorText))
+
 	if result == nil {
 		rows = append(rows, paragraph("Waiting for the first trace. Up to 30 hops, 800ms per hop; monitoring continues independently.", 11, colorMuted))
 	} else {

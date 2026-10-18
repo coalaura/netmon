@@ -180,6 +180,8 @@ func runTrace(ctx context.Context, state interfaceState, target netip.Addr) *tra
 
 	defer probe.close()
 
+	result.Protocol = probe.protocolName()
+
 	for ttl := 1; ttl <= traceMaxHops && ctx.Err() == nil; ttl++ {
 		started := time.Now()
 

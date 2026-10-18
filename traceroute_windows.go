@@ -46,6 +46,10 @@ func (probe *traceProbe) close() {
 	closeICMP.Call(probe.handle)
 }
 
+func (*traceProbe) protocolName() string {
+	return traceProtocol
+}
+
 func (probe *traceProbe) hop(ctx context.Context, ttl int) traceHop {
 	result := traceHop{TTL: ttl, Status: statusTimeout, Detail: "No reply within 800ms"}
 
