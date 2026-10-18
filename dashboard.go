@@ -291,6 +291,7 @@ func (dashboard *dashboard) view(_ *gui.Window) gui.View {
 			Spacing: gui.SpacingPx(12),
 			VAlign:  gui.VAlignMiddle,
 			Content: []gui.View{
+				gui.Svg(gui.SvgCfg{SvgData: logoSVG, Width: 28, Height: 28}),
 				label("NETMON", 16, colorText),
 				paragraph(updated, 11, headerColor),
 				controlButton("stats", statsLabel, dashboard.toggleStats),

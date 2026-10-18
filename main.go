@@ -51,12 +51,15 @@ func main() {
 
 	window := gui.NewWindow(gui.WindowCfg{
 		Title:     "Netmon " + version,
+		IconPNG:   logoPNG,
 		Width:     1180,
 		Height:    840,
 		MinWidth:  900,
 		MinHeight: 620,
 		BgColor:   colorBackground,
 		OnInit: func(window *gui.Window) {
+			styleTitlebar(window)
+
 			window.SetView(dashboard.view)
 		},
 		OnCloseRequest: func(window *gui.Window) {
