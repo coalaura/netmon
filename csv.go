@@ -12,7 +12,7 @@ import (
 type csvLog struct {
 	file   *os.File
 	writer *csv.Writer
-	row    [53]string
+	row    [55]string
 	failed error
 }
 
@@ -105,7 +105,7 @@ func (writer *csvLog) prepare(timestamp time.Time, state *interfaceState) {
 	row[10] = state.ResolverSource
 	row[11] = state.Error
 	row[18] = "IPv4"
-	row[19] = "6"
+	row[19] = "7"
 }
 
 func (writer *csvLog) writeTrace(result *traceResult) error {
@@ -242,6 +242,8 @@ func (writer *csvLog) writeConnections(current *sample) error {
 		row[15] = statusOK
 		row[51] = strconv.Itoa(counts.Total)
 		row[52] = strconv.Itoa(counts.Established)
+		row[53] = strconv.Itoa(counts.active())
+		row[54] = strconv.Itoa(counts.TimeWait)
 	}
 
 	writer.failed = writer.writer.Write(row[:])
@@ -315,7 +317,7 @@ func openCSV(path string) (*csvLog, error) {
 
 	writer := &csvLog{file: file, writer: csv.NewWriter(file)}
 
-	header := []string{"timestamp", "interface_index", "interface", "source_ipv4", "link", "link_speed_bps", "gateway", "gateway_arp", "default_route", "interface_dns", "resolver_source", "interface_error", "monitor", "target", "query", "status", "latency_ms", "detail", "address_family", "schema_version", "record_type", "attempted", "succeeded", "trace_started", "trace_protocol", "hop", "hop_address", "hop_count", "trace_change", "trace_duration_ms", "rx_bytes", "tx_bytes", "rx_errors", "tx_errors", "rx_discards", "tx_discards", "rx_bps", "tx_bps", "rx_errors_delta", "tx_errors_delta", "rx_discards_delta", "tx_discards_delta", "counter_interval_ms", "check_stage", "dns_ms", "connect_ms", "tls_ms", "ttfb_ms", "http_status", "remote_address", "check_finished", "tcp_total", "tcp_established"}
+	header := []string{"timestamp", "interface_index", "interface", "source_ipv4", "link", "link_speed_bps", "gateway", "gateway_arp", "default_route", "interface_dns", "resolver_source", "interface_error", "monitor", "target", "query", "status", "latency_ms", "detail", "address_family", "schema_version", "record_type", "attempted", "succeeded", "trace_started", "trace_protocol", "hop", "hop_address", "hop_count", "trace_change", "trace_duration_ms", "rx_bytes", "tx_bytes", "rx_errors", "tx_errors", "rx_discards", "tx_discards", "rx_bps", "tx_bps", "rx_errors_delta", "tx_errors_delta", "rx_discards_delta", "tx_discards_delta", "counter_interval_ms", "check_stage", "dns_ms", "connect_ms", "tls_ms", "ttfb_ms", "http_status", "remote_address", "check_finished", "tcp_total", "tcp_established", "tcp_active", "tcp_time_wait"}
 
 	err = writer.writer.Write(header)
 

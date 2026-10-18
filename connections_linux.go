@@ -10,7 +10,7 @@ import (
 )
 
 func (sampler *connectionSampler) sample() connectionSample {
-	result := connectionSample{Time: time.Now(), Detail: "Network-namespace TCPv4/v6; excludes listening and closed sockets"}
+	result := connectionSample{Time: time.Now(), Detail: "Network-namespace TCPv4/v6; excludes listening and closed sockets; active excludes TIME_WAIT"}
 
 	if len(sampler.buffer) == 0 {
 		sampler.buffer = make([]byte, 16*1024)
@@ -95,6 +95,8 @@ func countLinuxTCPTable(reader io.Reader, buffer []byte, result *connectionSampl
 
 		if bytes.Equal(state, []byte("01")) {
 			result.Established++
+		} else if bytes.Equal(state, []byte("06")) {
+			result.TimeWait++
 		}
 	}
 

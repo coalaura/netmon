@@ -14,7 +14,7 @@ const tcpTableOwnerPIDAll = 5
 var getExtendedTCPTable = windows.NewLazySystemDLL("iphlpapi.dll").NewProc("GetExtendedTcpTable")
 
 func (sampler *connectionSampler) sample() connectionSample {
-	result := connectionSample{Time: time.Now(), Detail: "System-wide TCPv4/v6; excludes listening and closed sockets"}
+	result := connectionSample{Time: time.Now(), Detail: "System-wide TCPv4/v6; excludes listening and closed sockets; active excludes TIME_WAIT"}
 
 	if len(sampler.buffer) == 0 {
 		sampler.buffer = make([]byte, 16*1024)
@@ -99,8 +99,11 @@ func countWindowsTCPTable(data []byte, family uint32, result *connectionSample) 
 
 		result.Total++
 
-		if state == 5 {
+		switch state {
+		case 5:
 			result.Established++
+		case 11:
+			result.TimeWait++
 		}
 	}
 

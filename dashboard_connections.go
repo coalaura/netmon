@@ -13,8 +13,8 @@ import (
 )
 
 var (
-	connectionNames  = [2]string{"Total", "Established"}
-	connectionColors = [2]gui.Color{colorTeal, colorSand}
+	connectionNames  = [3]string{"Active", "Established", "TIME_WAIT"}
+	connectionColors = [3]gui.Color{colorTeal, colorSand, colorMuted}
 )
 
 // Counts are independent of the selected interface and stay continuous across route changes.
@@ -48,8 +48,9 @@ func (dashboard *dashboard) refreshConnections() {
 		if current.Connections.Available {
 			coordinate := float64(current.Time.UnixNano()) / float64(time.Second)
 
-			dashboard.connectionPoints[0] = append(dashboard.connectionPoints[0], series.Point{X: coordinate, Y: float64(current.Connections.Total)})
+			dashboard.connectionPoints[0] = append(dashboard.connectionPoints[0], series.Point{X: coordinate, Y: float64(current.Connections.active())})
 			dashboard.connectionPoints[1] = append(dashboard.connectionPoints[1], series.Point{X: coordinate, Y: float64(current.Connections.Established)})
+			dashboard.connectionPoints[2] = append(dashboard.connectionPoints[2], series.Point{X: coordinate, Y: float64(current.Connections.TimeWait)})
 		}
 
 		previous = current.Time
@@ -71,18 +72,22 @@ func (dashboard *dashboard) appendConnectionSeries(start int) {
 func (dashboard *dashboard) connectionChart() gui.View {
 	maximum := float64(10)
 
-	for _, point := range dashboard.connectionPoints[0] {
-		maximum = max(maximum, math.Ceil(point.Y*1.15/5)*5)
+	for _, points := range dashboard.connectionPoints {
+		for _, point := range points {
+			maximum = max(maximum, math.Ceil(point.Y*1.15/5)*5)
+		}
 	}
 
 	current := &dashboard.current.Connections
 
-	total := "Total --"
+	active := "Active --"
 	established := "Established --"
+	timeWait := "TIME_WAIT --"
 
 	if current.Available {
-		total = fmt.Sprintf("Total %d", current.Total)
+		active = fmt.Sprintf("Active %d", current.active())
 		established = fmt.Sprintf("Established %d", current.Established)
+		timeWait = fmt.Sprintf("TIME_WAIT %d", current.TimeWait)
 	}
 
 	plot := lineChart(chart.LineCfg{
@@ -102,7 +107,7 @@ func (dashboard *dashboard) connectionChart() gui.View {
 	}, "Waiting for TCP connection counts")
 
 	content := []gui.View{
-		gui.Row(gui.ContainerCfg{Padding: gui.PaddingNone, Spacing: gui.SpacingPx(10), Content: []gui.View{label(total, 11, connectionColors[0]), label(established, 11, connectionColors[1]), label("1s snapshots", 11, colorMuted)}}),
+		gui.Row(gui.ContainerCfg{Padding: gui.PaddingNone, Spacing: gui.SpacingPx(10), Content: []gui.View{label(active, 11, connectionColors[0]), label(established, 11, connectionColors[1]), label(timeWait, 11, connectionColors[2]), label("1s snapshots", 11, colorMuted)}}),
 		plot,
 	}
 

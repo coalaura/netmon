@@ -55,7 +55,7 @@ type dashboard struct {
 	applicationPoints  [2][]series.Point
 	applicationSeries  []series.XY
 	applicationRegions []chart.RegionAnnotation
-	connectionPoints   [2][]series.Point
+	connectionPoints   [3][]series.Point
 	connectionSeries   []series.XY
 }
 
@@ -602,11 +602,14 @@ func newDashboard(monitor *monitor) *dashboard {
 		traceRegions:       make([]chart.RegionAnnotation, 0, traceHistorySize),
 		applicationSeries:  make([]series.XY, 0, historySize*2),
 		applicationRegions: make([]chart.RegionAnnotation, 0, historySize*2),
-		connectionSeries:   make([]series.XY, 0, historySize*2),
+		connectionSeries:   make([]series.XY, 0, historySize*3),
 	}
 
 	for index := range dashboard.applicationPoints {
 		dashboard.applicationPoints[index] = make([]series.Point, 0, historySize)
+	}
+
+	for index := range dashboard.connectionPoints {
 		dashboard.connectionPoints[index] = make([]series.Point, 0, historySize)
 	}
 

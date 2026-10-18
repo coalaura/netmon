@@ -31,7 +31,7 @@ No CGO is required. Run the resulting `netmon.exe` on Windows or `./netmon` on L
 - **Interface:** the OS-selected interface for reaching `9.9.9.9`, its source address, link state and reported speed, gateway neighbor/ARP state and default-route availability.
 - **Traffic:** passive receive/transmit rates and interface error/discard counters, read from the OS without generating test traffic.
 - **TCP / HTTPS:** a TCP connection to `1.1.1.1:443` and an HTTPS request to `https://www.gstatic.com/generate_204`, with DNS, connection, TLS and time-to-first-byte timings and explicit failure stages.
-- **TCP connections:** passive one-second snapshots of total and established TCP socket entries across the system, including IPv4 and IPv6. Linux counts cover the current network namespace.
+- **TCP connections:** passive one-second snapshots of active, established and `TIME_WAIT` TCP socket entries across the system, including IPv4 and IPv6. Linux counts cover the current network namespace.
 - **Traceroute:** a background trace to `9.9.9.9` approximately every 20 seconds, with per-hop addresses and RTTs, route changes and a one-hour destination hop-count chart.
 - **History:** five-minute latency charts, rolling failure rates, recent state changes and continuous CSV logging.
 
@@ -45,8 +45,8 @@ TCP and HTTPS checks run concurrently in the background approximately every two 
 
 - Remote ICMP and DNS charts show the **mean of successful replies**. Read these alongside success counts and per-target results: losing a slower target can lower the mean even when connectivity worsens.
 - Amber chart bands indicate timeouts or partial results, red indicates errors and orange indicates permission problems. Samples with no successful replies leave gaps rather than plotting zero latency.
-- TCP and HTTPS share the Monitor table with ICMP and DNS. The second graph row shows TCP connection latency and HTTPS total latency on the left and total/established TCP counts on the right. All four graphs use the same rolling five-minute window and markerless lines. HTTPS phase timings remain in the table; totals include DNS, TCP, TLS and HTTP.
-- TCP counts are current socket-table snapshots, not cumulative attempts or an interface-specific measurement. Totals exclude listening and closed sockets but include `TIME_WAIT` and other closing states; established is a subset. Netmon's own checks also contribute to these counts. Unavailable count samples leave gaps; a measured zero remains zero.
+- TCP and HTTPS share the Monitor table with ICMP and DNS. The second graph row shows TCP connection latency and HTTPS total latency on the left and active/established/`TIME_WAIT` TCP counts on the right. All four graphs use the same rolling five-minute window and markerless lines. HTTPS phase timings remain in the table; totals include DNS, TCP, TLS and HTTP.
+- TCP counts are current socket-table snapshots, not cumulative attempts or an interface-specific measurement. Active excludes listening, closed and `TIME_WAIT` entries, but includes connections opening or closing; established is a subset of active. `TIME_WAIT` is shown separately: these connections have closed, but the OS temporarily retains TCP bookkeeping. Netmon's own checks contribute to these counts and can cause `TIME_WAIT` to build up after startup without a socket leak. Unavailable count samples leave gaps; a measured zero remains zero.
 
 ### Per-host results and statistics
 
@@ -75,7 +75,7 @@ Each launch creates a unique `netmon-<timestamp>.csv`. The dashboard shows its p
 
 Logs include network state, monitor summaries, individual ping and DNS results, traceroute summaries and hops, passive traffic counters and TCP/HTTPS checks. Filter by `record_type` when calculating statistics to avoid counting both summaries and individual results.
 
-Schema version 6 writes 19 rows per regular sample: five `summary`, three `ping`, nine `query`, one `traffic` and one `connections`. Each application-check batch adds two `application` rows; traces add `trace` and `trace_hop` rows. Traffic records contain cumulative counters, interval deltas and rates. Application records contain the failed/completed stage, phase timings, HTTP status, remote address and completion time. Connection records add `tcp_total` and `tcp_established`, with system-wide scope despite the accompanying interface snapshot. Unknown or unattempted measurements are blank; measured zero values remain zero.
+Schema version 7 writes 19 rows per regular sample: five `summary`, three `ping`, nine `query`, one `traffic` and one `connections`. Each application-check batch adds two `application` rows; traces add `trace` and `trace_hop` rows. Traffic records contain cumulative counters, interval deltas and rates. Application records contain the failed/completed stage, phase timings, HTTP status, remote address and completion time. Connection records contain `tcp_total`, `tcp_established`, `tcp_active` and `tcp_time_wait`, with system-wide scope despite the accompanying interface snapshot. `tcp_total` retains its previous meaning (all entries except listening and closed); `tcp_active` is `tcp_total - tcp_time_wait`. Unknown or unattempted measurements are blank; measured zero values remain zero.
 
 Rows are flushed after each sample or completed background check. Logging errors appear in the dashboard while monitoring continues. Logs are not automatically rotated or deleted.
 
