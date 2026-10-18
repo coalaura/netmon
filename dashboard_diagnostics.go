@@ -35,7 +35,7 @@ func (dashboard *dashboard) trafficRow() gui.View {
 	if traffic.Valid {
 		text = fmt.Sprintf("TRAFFIC  |  RX %s  /  TX %s  |  Errors RX/TX +%d / +%d  |  Discards RX/TX +%d / +%d  |  %.2fs delta", bitRateText(traffic.RXBitsPerSecond), bitRateText(traffic.TXBitsPerSecond), traffic.RXErrors, traffic.TXErrors, traffic.RXDiscards, traffic.TXDiscards, traffic.Interval.Seconds())
 
-		if traffic.RXErrors+traffic.TXErrors+traffic.RXDiscards+traffic.TXDiscards > 0 {
+		if traffic.RXErrors > 0 || traffic.TXErrors > 0 {
 			color = colorAmber
 		}
 	}

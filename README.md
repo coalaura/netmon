@@ -60,7 +60,7 @@ Host results use compact nested tables with one row per host and aligned result/
 
 - Traceroute reports a destination hop count only when the destination responds. `*` means no reply; hop RTT is the round trip to that router, not the latency of an individual link.
 - Link speed is adapter-reported, not measured throughput. A stale ARP entry is normal. ICMP responses can be filtered or rate-limited, so compare them with DNS and interface status.
-- Traffic rates use the actual interval between counter reads. Error/discard increments are interface-wide OS counters, not remote packet-loss measurements. Interface changes and counter resets establish a new baseline instead of producing a spike.
+- Traffic rates use the actual interval between counter reads. Error/discard increments are interface-wide OS counters, not remote packet-loss measurements. Only error increments trigger interface-counter events and amber traffic highlighting; discard increments remain visible in the traffic row and CSV but do not trigger warnings on their own. Interface changes and counter resets establish a new baseline instead of producing a spike.
 - **Freeze display** holds the displayed snapshot while sampling, state-change detection and CSV logging continue. **Resume live** immediately catches up to the latest state. Recent Changes keeps the newest 32 events, one line each, with horizontal and vertical scrolling.
 - Traceroute entries in Recent Changes are change-driven: an initial result, failure/recovery, changed failure reason, network/target change, hop-count change or observed path change. Repeated identical outcomes and timing-only fluctuations do not add entries; every trace still reaches the graph history and CSV.
 

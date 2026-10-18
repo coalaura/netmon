@@ -37,7 +37,7 @@ func (monitor *monitor) recordChanges(current *sample) {
 		monitor.addEvent(traffic.Counters.Time, "Interface counters: "+traffic.Counters.Detail)
 	}
 
-	if traffic.Valid && (traffic.RXErrors > 0 || traffic.TXErrors > 0 || traffic.RXDiscards > 0 || traffic.TXDiscards > 0) {
+	if traffic.Valid && (traffic.RXErrors > 0 || traffic.TXErrors > 0) {
 		monitor.addEvent(traffic.Counters.Time, fmt.Sprintf("Interface counters | errors RX +%d / TX +%d | discards RX +%d / TX +%d", traffic.RXErrors, traffic.TXErrors, traffic.RXDiscards, traffic.TXDiscards))
 	}
 
